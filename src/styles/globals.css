@@ -1,0 +1,55 @@
+@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+html,
+body {
+  cursor: default !important;
+  /* 기본 화살표 */
+}
+
+button,
+a,
+[role="button"] {
+  cursor: pointer !important;
+  /* 클릭 가능한 곳은 손가락 모양 */
+}
+
+/* [수정] 기본 글씨 색상을 더 진하게 설정 */
+body {
+  color: #1f2937;
+  /* Tailwind gray-800 와 동일 (진한 회색) */
+}
+
+/* [New] 1920x1080 해상도 대응 (기본 16px -> 12px로 75% 축소) */
+@media (max-width: 1920px) {
+  html {
+    font-size: 12px;
+  }
+}

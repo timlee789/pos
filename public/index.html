@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Collegiate Grill Interactive Burger</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800;900&display=swap" rel="stylesheet">
+    <style>
+        /* 기본 설정 */
+        body { margin: 0; overflow: hidden; background-color: #f0f2f5; font-family: 'Montserrat', sans-serif; }
+        #webcam { display: none; }
+        #output_canvas { display: none; }
+
+        /* 상단 헤더 */
+        #header-container {
+            position: absolute; top: 0; left: 0; width: 100%;
+            display: flex; flex-direction: column; z-index: 300;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+        }
+        #cta-bar {
+            width: 100%; height: 5vh; 
+            background: linear-gradient(90deg, #ffc107, #ffb300);
+            display: flex; align-items: center; justify-content: center;
+            animation: pulseBar 2s infinite;
+        }
+        #cta-text {
+            color: #000; font-size: 2vh; font-weight: 900; 
+            text-transform: uppercase; letter-spacing: 1px;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.5);
+        }
+        @keyframes pulseBar { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.1); } }
+
+        #control-bar {
+            width: 100%; height: 8vh; background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: space-between;
+            padding: 0 3vw; box-sizing: border-box; border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        #mode-title { color: #333; font-size: 2.5vh; font-weight: 900; }
+        #btn-group { display: flex; gap: 1vw; }
+        .nav-btn {
+            background: #ffffff; color: #555; padding: 1vh 1.5vw; 
+            border-radius: 1.5vh; border: 1px solid #eee; font-size: 1.4vh; font-weight: 700;
+            cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 0.5vw;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        .nav-btn.active { background: #333; color: #fff; border-color: #333; box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+
+        /* 캐릭터 스테이지 */
+        #character-stage {
+            position: absolute; top: 55%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%; height: 60%;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 10;
+        }
+
+        /* 🍔 햄버거 몸통 (사이즈 확대 및 비율 조정) */
+        #burger-body {
+            /* ✨ 크기 확대: 26vh/21vh -> 29vh/23vh */
+            width: 29vh; height: 23vh;
+            background: linear-gradient(to bottom, #f4d03f, #e67e22);
+            /* ✨ 라운드 조정: 크기에 맞춰 비율 조정 */
+            border-radius: 11vh 11vh 5.5vh 5.5vh;
+            box-shadow: inset 0 -1vh 2vh rgba(0,0,0,0.1), 0 10px 25px rgba(0,0,0,0.2);
+            position: relative;
+            animation: breathe-normal 3s infinite ease-in-out;
+            transform-origin: bottom center;
+
+            /* 참깨 패턴 */
+            background-image: 
+                radial-gradient(circle at 20% 20%, #ffe0b2 2%, transparent 2.5%),
+                radial-gradient(circle at 50% 15%, #ffe0b2 2%, transparent 2.5%),
+                radial-gradient(circle at 80% 25%, #ffe0b2 2%, transparent 2.5%),
+                radial-gradient(circle at 30% 35%, #ffe0b2 2%, transparent 2.5%),
+                radial-gradient(circle at 60% 30%, #ffe0b2 2%, transparent 2.5%),
+                radial-gradient(circle at 75% 10%, #ffe0b2 2%, transparent 2.5%),
+                linear-gradient(to bottom, #f4d03f, #e67e22);
+            background-blend-mode: overlay, normal;
+        }
+
+        /* 패티 & 야채 (비율 조정) */
+        #burger-body::before {
+            content: ''; position: absolute; bottom: 3.5vh; left: 1vh; width: 24vh; height: 3.5vh;
+            background: linear-gradient(to bottom, #795548, #4e342e);
+            border-radius: 2vh; box-shadow: inset 0 0.5vh 1vh rgba(0,0,0,0.3); z-index: 1;
+        }
+        #burger-body::after {
+            content: ''; position: absolute; bottom: 7vh; left: 2vh; width: 22vh; height: 2vh;
+            background: linear-gradient(to bottom, #81c784, #388e3c);
+            border-radius: 2vh; box-shadow: 0 0.5vh 0.5vh rgba(0,0,0,0.1); z-index: 2;
+        }
+
+        /* 눈 (비율 조정) */
+        .eyes-row {
+            position: absolute; top: 6vh; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 3vh; z-index: 10;
+        }
+        .eye {
+            width: 6vh; height: 6vh; background: white; border-radius: 50%;
+            position: relative; overflow: hidden; box-shadow: inset 0 0 1vh rgba(0,0,0,0.2);
+        }
+        .eye::after {
+            content: ''; position: absolute; top: 1vh; right: 1vh;
+            width: 1.5vh; height: 1.5vh; background: white; border-radius: 50%;
+            box-shadow: 0 0 2px rgba(255,255,255,0.8);
+        }
+        .pupil {
+            width: 3vh; height: 3vh; background: #212121;
+            border-radius: 50%; position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); transition: transform 0.1s ease-out;
+        }
+
+        /* 팔 (비율 조정) */
+        .arm {
+            position: absolute; top: 9vh; width: 3vh; height: 7vh;
+            background: linear-gradient(to right, #e67e22, #f4d03f);
+            border-radius: 2vh; z-index: 0; transition: transform 0.3s;
+            box-shadow: inset 0 -0.5vh 1vh rgba(0,0,0,0.1);
+        }
+        .arm.left { left: -2vh; transform-origin: top right; transform: rotate(20deg); }
+        .arm.right { right: -2vh; transform-origin: top left; transform: rotate(-20deg); }
+
+        /* ✨👄 [입 - 중앙 정렬 수정 및 비율 조정] */
+        .mouth {
+            position: absolute; bottom: 7vh; left: 50%; 
+            transform: translateX(-50%); 
+            width: 5vh; height: 1.5vh;
+            border-bottom: 0.6vh solid #3e2723;
+            border-radius: 0 0 50% 50%;
+            z-index: 10; transition: 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            opacity: 0.9;
+        }
+
+        /* 💬 [말풍선 수정] */
+        #bubble {
+            background: #fff; border-radius: 25px;
+            padding: 2vh 3vw;
+            /* ✨ 글씨 크기 확대: 1.8vh -> 2.1vh */
+            font-size: 2.1vh; font-weight: 800; color: #333;
+            /* ✨ 위치 하향 조정: top -12vh -> -5vh (햄버거 머리 근처) */
+            position: absolute; top: -5vh; 
+            opacity: 0;
+            transition: 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: none;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            line-height: 1.4;
+        }
+        #bubble::after {
+            content: ''; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%);
+            border-width: 10px 10px 0; border-style: solid; border-color: #fff transparent transparent transparent;
+        }
+
+        /* =========================================
+           🎭 애니메이션 정의
+           ========================================= */
+        @keyframes breathe-normal {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+        }
+        @keyframes wave-right { 0%, 100% { transform: rotate(-20deg); } 50% { transform: rotate(-70deg); } }
+        @keyframes wave-both-l { 0%, 100% { transform: rotate(20deg); } 50% { transform: rotate(80deg); } }
+        @keyframes wave-both-r { 0%, 100% { transform: rotate(-20deg); } 50% { transform: rotate(-80deg); } }
+        @keyframes body-bounce { 
+            0%, 100% { transform: translateY(0) scale(1); } 
+            50% { transform: translateY(-3vh) scale(1.08) rotate(2deg); }
+        }
+        @keyframes body-wiggle { 
+            0%, 100% { transform: rotate(-5deg) scale(1.02); } 
+            50% { transform: rotate(5deg) scale(1.02); } 
+        }
+
+        /* ✨ [입 애니메이션 수정] translateX(-50%)를 유지하여 중앙 고정 */
+        @keyframes mouth-talk { 
+            0%, 100% { height: 1.5vh; border-bottom-width: 0.6vh; transform: translateX(-50%) scale(1); } 
+            50% { height: 3.5vh; border-bottom-width: 1vh; transform: translateX(-50%) scale(1.2); }
+        }
+
+        /* ✨ 클래스별 동작 적용 */
+        /* ✨ 감지 시 말풍선 위치 하향 조정: top -14vh -> -6vh */
+        .detected #bubble { opacity: 1; top: -6vh; } 
+
+        .act-1 .arm.right { animation: wave-right 0.5s infinite ease-in-out; }
+        .act-1 .mouth { animation: mouth-talk 0.4s infinite; } 
+
+        .act-2 .arm.left { animation: wave-both-l 0.4s infinite; }
+        .act-2 .arm.right { animation: wave-both-r 0.4s infinite; }
+        .act-2 #burger-body { transform: scale(1.1); } 
+        .act-2 .mouth { height: 2.5vh; border-bottom-width: 0.8vh; }
+
+        .act-3 #burger-body { animation: body-bounce 0.6s infinite ease-in-out; }
+        .act-3 .mouth { height: 3.5vh; border-bottom-width: 1vh; }
+
+        .act-4 #burger-body { animation: body-wiggle 0.6s infinite ease-in-out; }
+        .act-4 .mouth { animation: mouth-talk 0.6s infinite; }
+
+        .act-5 #burger-body { animation: breathe-normal 1.5s infinite ease-in-out; transform: scale(1.05); }
+        .act-5 .mouth { height: 2vh; width: 6vh; }
+
+    </style>
+</head>
+<body>
+
+<div id="header-container">
+    <div id="cta-bar"><div id="cta-text">👈 TOUCH MENU TO ORDER</div></div>
+    <div id="control-bar">
+        <div id="mode-title">Collegiate Grill</div>
+        <div id="btn-group">
+            <button class="nav-btn active">🍔 Greeter</button>
+        </div>
+    </div>
+</div>
+
+<div id="character-stage">
+    <div id="bubble">
+        Welcome to The Collegiate Grill,<br>
+        Serving Gaineville since 1947
+    </div>
+    
+    <div id="burger-body">
+        <div class="arm left"></div>
+        <div class="arm right"></div>
+        <div class="eyes-row">
+            <div class="eye"><div class="pupil" id="pupil-l"></div></div>
+            <div class="eye"><div class="pupil" id="pupil-r"></div></div>
+        </div>
+        <div class="mouth"></div>
+    </div>
+</div>
+
+<video id="webcam" playsinline autoplay></video>
+
+<script type="module">
+    import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+
+    const video = document.getElementById('webcam');
+    const stage = document.getElementById('character-stage');
+    const pupilL = document.getElementById('pupil-l');
+    const pupilR = document.getElementById('pupil-r');
+    const modeTitle = document.getElementById('mode-title');
+
+    let faceLandmarker;
+    let running = false;
+    let lastDetectionTime = 0;
+    
+    let actionTimer = 0;
+    const ACTION_CHANGE_INTERVAL = 3000; 
+    let currentActionClass = '';
+
+    const MAX_EYE_MOVE = 15; 
+
+    async function setupAI() {
+        try {
+            const filesetResolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
+            faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+                baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task", delegate: "GPU" },
+                runningMode: "VIDEO",
+                numFaces: 1
+            });
+            startCamera();
+        } catch (e) { console.error("AI Load Failed", e); }
+    }
+
+    async function startCamera() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" } });
+            video.srcObject = stream;
+            video.onloadeddata = () => { running = true; requestAnimationFrame(loop); };
+        } catch (e) { console.error("Camera Failed", e); }
+    }
+
+    function moveEyes(faceX, faceY) {
+        const deltaX = (1 - faceX) - 0.5; 
+        const deltaY = faceY - 0.5;
+        const moveX = deltaX * MAX_EYE_MOVE * 3;
+        const moveY = deltaY * MAX_EYE_MOVE * 2;
+        const transformStyle = `translate(calc(-50% + ${moveX}px), calc(-50% + ${moveY}px))`;
+        pupilL.style.transform = transformStyle;
+        pupilR.style.transform = transformStyle;
+    }
+
+    function changeRandomAction() {
+        if (currentActionClass) stage.classList.remove(currentActionClass);
+        const randomNum = Math.floor(Math.random() * 5) + 1;
+        currentActionClass = `act-${randomNum}`;
+        stage.classList.add(currentActionClass);
+    }
+
+    async function loop() {
+        if (!running || !faceLandmarker) return;
+        let now = performance.now();
+        
+        if (now - lastDetectionTime > 50) { 
+            lastDetectionTime = now;
+            const results = faceLandmarker.detectForVideo(video, now);
+            
+            if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+                stage.classList.add('detected');
+                modeTitle.innerText = "Welcome! I See You! 👋";
+                
+                const nose = results.faceLandmarks[0][1]; 
+                moveEyes(nose.x, nose.y);
+                
+                if (now - actionTimer > ACTION_CHANGE_INTERVAL) {
+                    changeRandomAction();
+                    actionTimer = now;
+                }
+
+            } else {
+                stage.classList.remove('detected');
+                if (currentActionClass) {
+                    stage.classList.remove(currentActionClass);
+                    currentActionClass = '';
+                }
+                modeTitle.innerText = "Collegiate Grill";
+                pupilL.style.transform = `translate(-50%, -50%)`;
+                pupilR.style.transform = `translate(-50%, -50%)`;
+            }
+        }
+        requestAnimationFrame(loop);
+    }
+
+    setupAI();
+</script>
+</body>
+</html>
