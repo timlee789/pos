@@ -1,6 +1,6 @@
 // src/app/admin/layout.tsx
 "use client";
-import { useState } from 'react'; // [추가]
+import { useState } from 'react'; 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
@@ -9,7 +9,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const router = useRouter();
   
-  // [수정] useState로 감싸서 최초 1회만 생성되도록 변경 (경고 해결)
+  // useState로 감싸서 최초 1회만 생성되도록 유지
   const [supabase] = useState(() => createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -21,13 +21,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.refresh();
   };
 
-  // ... (나머지 UI 코드는 그대로 유지) ...
+  // ✨ [수정] 여기에 'Store Settings' 메뉴를 추가했습니다.
   const menuItems = [
     { name: 'Dashboard', path: '/admin', icon: '🏠' },
     { name: 'Category Management', path: '/admin/categories', icon: '📑' },
     { name: 'Menu Management', path: '/admin/menu', icon: '🍔' },
     { name: 'Modifier Management', path: '/admin/modifiers', icon: '✅' },
     { name: 'Order History', path: '/admin/orders', icon: '🧾' },
+    // 👇 새로 추가된 설정 페이지 버튼
+    { name: 'Store Settings', path: '/admin/settings', icon: '⚙️' },
   ];
 
   return (

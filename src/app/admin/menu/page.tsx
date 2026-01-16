@@ -2,6 +2,19 @@
 import { useState, useEffect } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 
+// ✨ [추가] 타입 안정성을 위해 인터페이스 정의 (선택사항이지만 권장)
+interface MenuItem {
+  id: string;
+  name: string;
+  price: number;
+  description: string | null; // DB에서 null일 수 있음
+  is_available: boolean;
+  category_id: string;
+  image_url: string | null;
+  sort_order: number;
+  restaurant_id?: string;
+}
+
 export default function AdminMenuPage() {
   const [supabase] = useState(() => createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,10 +23,13 @@ export default function AdminMenuPage() {
 
   const [categories, setCategories] = useState<any[]>([]);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
-  const [items, setItems] = useState<any[]>([]);
+  
+  // items 상태 관리
+  const [items, setItems] = useState<MenuItem[]>([]);
   
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<any>({}); 
+  // ✨ editForm 초기화 시 description 필드 고려
+  const [editForm, setEditForm] = useState<Partial<MenuItem>>({}); 
 
   useEffect(() => {
     fetchCategories();
@@ -32,11 +48,13 @@ export default function AdminMenuPage() {
   };
 
   const fetchItems = async (catId: string) => {
+    // ✨ [확인] select('*')는 description 컬럼이 있다면 자동으로 가져옵니다.
     const { data } = await supabase
       .from('items')
       .select('*')
       .eq('category_id', catId)
       .order('sort_order', { ascending: true });
+    
     if (data) setItems(data);
   };
 
@@ -52,6 +70,7 @@ export default function AdminMenuPage() {
       category_id: selectedCatId,
       name: name,
       price: 0,
+      description: '', // 새 아이템은 빈 설명으로 시작
       is_available: true,
       sort_order: maxOrder + 1
     });
@@ -60,35 +79,40 @@ export default function AdminMenuPage() {
     else fetchItems(selectedCatId);
   };
 
-  const startEditing = (item: any) => {
+  // ✨ [핵심 수정] 수정 모드 시작 시 null 값 방지 처리
+  const startEditing = (item: MenuItem) => {
     setEditingId(item.id);
-    setEditForm({ ...item }); 
+    setEditForm({ 
+        ...item,
+        // DB에 null로 저장되어 있어도 에디터에서는 빈 문자열로 보여야 함
+        description: item.description || '' 
+    }); 
   };
 
   const saveItem = async () => {
     if (!editForm.name) return alert("Name is required");
 
-    // ✨ [수정 1] 업데이트 쿼리에 .select()를 추가하여 업데이트 결과를 확실히 확인
     const { data, error } = await supabase
       .from('items')
       .update({
         name: editForm.name,
-        price: parseFloat(editForm.price) || 0,
+        // ✨ 여기서 입력된 설명값을 저장
+        description: editForm.description, 
+        price: typeof editForm.price === 'string' ? parseFloat(editForm.price) : editForm.price,
         is_available: editForm.is_available,
         category_id: editForm.category_id
       })
       .eq('id', editingId)
-      .select(); // 업데이트된 데이터를 반환받음
+      .select(); 
 
     if (error) {
       alert("Error saving: " + error.message);
     } else {
-      // 데이터가 정상적으로 업데이트 되었는지 확인 (RLS 정책 등으로 인해 업데이트가 무시될 수 있음)
       if (data && data.length > 0) {
         setEditingId(null);
         fetchItems(selectedCatId!);
       } else {
-        alert("Failed to update item. Please check Database Permissions (RLS).");
+        alert("Update failed. Check permissions.");
       }
     }
   };
@@ -118,46 +142,33 @@ export default function AdminMenuPage() {
     fetchItems(selectedCatId!);
   };
 
- // ---------------------------------------------------------
-  // [Modified] 아이템 순서 변경 함수 (재정렬 방식)
-  // ---------------------------------------------------------
   const handleMoveItem = async (index: number, direction: 'prev' | 'next') => {
     if (direction === 'prev' && index === 0) return;
     if (direction === 'next' && index === items.length - 1) return;
 
     const targetIndex = direction === 'prev' ? index - 1 : index + 1;
     
-    // 1. 배열 복사 후 위치 교환 (UI 즉시 반영)
     const newItems = [...items];
     const temp = newItems[index];
     newItems[index] = newItems[targetIndex];
     newItems[targetIndex] = temp;
     
-    setItems(newItems); // 화면 먼저 갱신
+    setItems(newItems); 
 
-    // 2. [핵심] 전체 리스트를 순회하며 1부터 차례대로 번호 재부여
-    // 이렇게 하면 기존에 1, 1, 5, 5 처럼 꼬여있던 번호들이 1, 2, 3, 4로 싹 고쳐집니다.
     const updates = newItems.map((item, idx) => ({
         id: item.id,
-        sort_order: idx + 1 // 0번 인덱스 -> 1번, 1번 인덱스 -> 2번 ...
+        sort_order: idx + 1 
     }));
 
-    // 3. 변경된 순서 DB에 저장 (Promise.all로 병렬 처리)
     try {
         const updatePromises = updates.map(u => 
             supabase.from('items').update({ sort_order: u.sort_order }).eq('id', u.id)
         );
-        
         await Promise.all(updatePromises);
-        
-        // (선택) 확실한 동기화를 위해 완료 후 재조회 하셔도 되지만, 
-        // UI가 이미 바뀌었으므로 생략해도 됩니다.
-        // fetchItems(selectedCatId!); 
-
     } catch (error) {
         console.error("Reorder failed", error);
-        alert("Failed to save order. Please refresh.");
-        fetchItems(selectedCatId!); // 에러 시 원복
+        alert("Failed to save order.");
+        fetchItems(selectedCatId!); 
     }
   };
 
@@ -215,30 +226,31 @@ export default function AdminMenuPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {items.map((item, index) => {
               const isEditing = editingId === item.id;
-              const displayData = isEditing ? editForm : item;
+              // 편집 중일 때는 editForm을, 아닐 때는 원본 item을 사용
+              const displayData = isEditing ? (editForm as MenuItem) : item;
 
               return (
                 <div key={item.id} className={`bg-white p-5 rounded-2xl shadow-sm border transition-all 
                   ${isEditing ? 'ring-2 ring-blue-500 border-transparent shadow-xl z-10 scale-[1.02]' : 'border-gray-200'}`}>
                   
-                  {/* 순서 변경 버튼 */}
+                  {/* 순서 변경 버튼 (편집 중 아닐 때만) */}
                   {!isEditing && (
                     <div className="flex justify-between mb-2">
-                       <button 
-                         onClick={() => handleMoveItem(index, 'prev')}
-                         disabled={index === 0}
-                         className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-lg font-bold px-2"
-                       >
-                         ◀
-                       </button>
-                       <span className="text-xs text-gray-300 pt-1">Order: {item.sort_order}</span>
-                       <button 
-                         onClick={() => handleMoveItem(index, 'next')}
-                         disabled={index === items.length - 1}
-                         className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-lg font-bold px-2"
-                       >
-                         ▶
-                       </button>
+                        <button 
+                          onClick={() => handleMoveItem(index, 'prev')}
+                          disabled={index === 0}
+                          className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-lg font-bold px-2"
+                        >
+                          ◀
+                        </button>
+                        <span className="text-xs text-gray-300 pt-1">Order: {item.sort_order}</span>
+                        <button 
+                          onClick={() => handleMoveItem(index, 'next')}
+                          disabled={index === items.length - 1}
+                          className="text-gray-400 hover:text-blue-600 disabled:opacity-20 text-lg font-bold px-2"
+                        >
+                          ▶
+                        </button>
                     </div>
                   )}
 
@@ -246,10 +258,10 @@ export default function AdminMenuPage() {
                   <div className="aspect-square bg-gray-100 rounded-xl relative overflow-hidden group mb-4 flex items-center justify-center">
                       {displayData.image_url ? (
                         <img 
-                         src={displayData.image_url} 
-                         alt={displayData.name} 
-                         className="w-full h-full object-cover" 
-                         onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          src={displayData.image_url} 
+                          alt={displayData.name} 
+                          className="w-full h-full object-cover" 
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
                         />
                       ) : (
                         <span className="text-gray-400 text-sm font-bold">No Image</span>
@@ -261,15 +273,16 @@ export default function AdminMenuPage() {
                       </label>
                   </div>
 
-                  {/* 입력 폼 */}
+                  {/* 입력 폼 영역 */}
                   <div className="space-y-3">
+                    
+                    {/* 카테고리 이동 (편집 중에만 보임) */}
                     {isEditing && (
                       <div className="bg-yellow-50 p-2 rounded border border-yellow-200">
                         <label className="text-xs text-gray-500 font-bold uppercase block mb-1">Move Category</label>
                         <select
                           value={editForm.category_id}
-                          // ✨ [수정 2] 상태 업데이트 시 함수형 업데이트(prev => ...) 사용
-                          onChange={(e) => setEditForm((prev: any) => ({ ...prev, category_id: e.target.value }))}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, category_id: e.target.value }))}
                           className="w-full p-1 bg-white border border-gray-300 rounded text-sm font-bold text-gray-800"
                         >
                           {categories.map(cat => (
@@ -279,38 +292,58 @@ export default function AdminMenuPage() {
                       </div>
                     )}
 
+                    {/* 이름 입력 */}
                     <div>
                       <label className="text-xs text-gray-400 font-bold uppercase">Item Name</label>
                       <input 
                         type="text" 
                         disabled={!isEditing}
-                        value={displayData.name || ''} // 값이 없을 때 경고 방지
-                        // ✨ [수정 3] 입력값 유실 방지를 위한 함수형 업데이트 적용
-                        onChange={(e) => setEditForm((prev: any) => ({ ...prev, name: e.target.value }))}
+                        value={displayData.name || ''}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
                         className={`w-full text-lg font-bold bg-transparent outline-none border-b-2 py-1
                           ${isEditing ? 'border-blue-500 text-gray-900' : 'border-transparent text-gray-800'}`}
                       />
                     </div>
+
+                    {/* ✨ Description 입력/표시 영역 (수정됨) */}
+                    <div>
+                        <label className="text-xs text-gray-400 font-bold uppercase">Description</label>
+                        {isEditing ? (
+                            <textarea
+                                // ✨ [중요] null 값일 경우 빈 문자열로 처리하여 에러 방지
+                                value={editForm.description || ''} 
+                                onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                                rows={2}
+                                className="w-full text-sm bg-gray-50 border border-gray-300 rounded p-2 mt-1 resize-none focus:outline-none focus:border-blue-500"
+                                placeholder="Enter item description..."
+                            />
+                        ) : (
+                            // 보기 모드일 때
+                            <p className="text-sm text-gray-500 mt-1 line-clamp-2 min-h-[1.5rem]">
+                                {displayData.description ? displayData.description : <span className="text-gray-300 italic">No description</span>}
+                            </p>
+                        )}
+                    </div>
                     
+                    {/* 가격 및 품절 버튼 */}
                     <div className="flex justify-between gap-4">
                        <div className="flex-1">
                           <label className="text-xs text-gray-400 font-bold uppercase">Price ($)</label>
                           <input 
-                            type="number" 
-                            step="0.01"
-                            disabled={!isEditing}
-                            value={displayData.price}
-                            // ✨ [수정 4] Price 입력도 함수형 업데이트 적용
-                            onChange={(e) => setEditForm((prev: any) => ({ ...prev, price: e.target.value }))}
-                            className={`w-full text-lg font-bold bg-transparent outline-none border-b-2 py-1
-                              ${isEditing ? 'border-blue-500 text-gray-900' : 'border-transparent text-gray-800'}`}
-                          />
+                              type="number" 
+                              step="0.01"
+                              disabled={!isEditing}
+                              value={displayData.price}
+                              // ✨ [수정] prev 뒤에 : any 를 붙여서 타입 오류를 해결합니다.
+                              onChange={(e) => setEditForm((prev: any) => ({ ...prev, price: e.target.value }))}
+                              className={`w-full text-lg font-bold bg-transparent outline-none border-b-2 py-1
+                                ${isEditing ? 'border-blue-500 text-gray-900' : 'border-transparent text-gray-800'}`}
+                            />
                        </div>
                        <div className="flex items-end pb-2">
                           <button 
                             disabled={!isEditing}
-                            // ✨ [수정 5] 토글 버튼도 함수형 업데이트 적용
-                            onClick={() => setEditForm((prev: any) => ({ ...prev, is_available: !prev.is_available }))}
+                            onClick={() => setEditForm(prev => ({ ...prev, is_available: !prev.is_available }))}
                             className={`text-xs font-bold px-3 py-1 rounded-full transition-colors
                               ${displayData.is_available 
                                 ? 'bg-green-100 text-green-700' 
@@ -322,7 +355,7 @@ export default function AdminMenuPage() {
                     </div>
                   </div>
 
-                  {/* 버튼 영역 */}
+                  {/* 하단 버튼 영역 */}
                   <div className="mt-6 pt-4 border-t flex justify-between items-center">
                     {isEditing ? (
                       <>
