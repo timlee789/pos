@@ -17,7 +17,9 @@ export async function POST(request: Request) {
       total, 
       paymentMethod, 
       orderType, 
-      tableNum 
+      tableNum,
+      // ✨ [추가] 프론트엔드에서 보낸 직원 이름 받기
+      employeeName 
     } = body;
 
     console.log("📝 DB 저장 시작...");
@@ -33,7 +35,9 @@ export async function POST(request: Request) {
         subtotal: subtotal,
         tax: tax,
         tip: tip,
-        payment_method: paymentMethod
+        payment_method: paymentMethod,
+        // ✨ [추가] 직원 이름 DB에 저장 (컬럼명: employee_name)
+        employee_name: employeeName 
       })
       .select()
       .single();
@@ -51,15 +55,15 @@ export async function POST(request: Request) {
         order_id: orderData.id,
         menu_item_id: item.id,
         
-        // ✨ [수정됨] DB 컬럼명 'item_name'에 맞춤 (기존: name)
+        // DB 컬럼명 'item_name'에 맞춤
         item_name: item.posName || item.name || 'Unknown Item', 
         
-        // ✨ [참고] 만약 다음 에러가 'price' 관련이면 여기를 'item_price'로 바꿔야 할 수도 있습니다.
-        // 현재는 에러 메시지가 없으므로 기존 'price' 유지
         price: item.price, 
-        
         quantity: item.quantity,
-        modifiers: item.selectedModifiers || [] 
+        modifiers: item.selectedModifiers || [],
+        
+        // ✨ [추가] 아이템별 메모(Note) DB에 저장
+        notes: item.notes || null 
       }));
 
       const { error: itemsError } = await supabase

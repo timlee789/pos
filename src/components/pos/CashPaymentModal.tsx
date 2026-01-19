@@ -16,36 +16,61 @@ export default function CashPaymentModal({
   totalAmount,
   onConfirm,
 }: CashPaymentModalProps) {
-  const [inputStr, setInputStr] = useState('');
+  // ✨ [개선] 정수형 센트 단위로 관리 (예: 1250 -> $12.50)
+  const [inputCents, setInputCents] = useState(0);
 
   useEffect(() => {
-    if (isOpen) setInputStr('');
+    if (isOpen) setInputCents(0);
   }, [isOpen]);
 
-  // 달러 계산이므로 소수점(센트) 고려 (여기서는 단순화를 위해 입력은 정수나 소수점 입력 가능하게 처리할 수 있으나, 보통 POS 키패드는 센트 단위 입력이 복잡하므로 정수 입력 후 소수점 처리를 하거나, 일단 정수 입력만 받습니다)
-  // 미국 POS는 보통 1200 입력시 $12.00이 되는 방식 또는 12 입력시 $12.00. 
-  // 여기서는 기존 로직대로 '숫자 그대로' 입력받되, 표기를 $로 바꿉니다.
-  const receivedAmount = parseFloat(inputStr || '0');
+  // 값 계산
+  const receivedAmount = inputCents / 100;
   const change = receivedAmount - totalAmount;
   const isSufficient = receivedAmount >= totalAmount;
 
-  const handleNumClick = (num: string) => {
-    if (inputStr.length > 8) return;
-    setInputStr((prev) => prev + num);
+  // ✨ [숫자 입력 로직 개선] 1 -> 2 -> 5 입력 시 $1.25가 됨 (POS 표준 방식)
+  const handleNumClick = (num: number) => {
+    if (inputCents > 1000000) return; // 너무 큰 금액 방지
+    setInputCents((prev) => prev * 10 + num);
   };
 
-  const handleBackspace = () => setInputStr((prev) => prev.slice(0, -1));
-  const handleClear = () => setInputStr('');
+  const handleBackspace = () => setInputCents((prev) => Math.floor(prev / 10));
+  const handleClear = () => setInputCents(0);
   
+  // 정확한 금액 (Exact)
   const handleExact = () => {
-    setInputStr(totalAmount.toString());
+    setInputCents(Math.round(totalAmount * 100));
+  };
+
+  // ✨ [스마트 추천] 지폐 단위 추천 버튼 생성
+  const getSmartTenders = () => {
+    // 🔴 기존 (에러): const suggestions = [];
+    // 🟢 수정: 숫자 배열임을 명시 (: number[])
+    const suggestions: number[] = []; 
+    
+    const current = totalAmount;
+
+    // 1. Next Dollar (예: 12.50 -> 13.00)
+    if (current % 1 !== 0) {
+        suggestions.push(Math.ceil(current));
+    }
+    // 2. $5, $10, $20, $50, $100 단위
+    [5, 10, 20, 50, 100].forEach(bill => {
+        if (bill > current) {
+            // 이미 Next Dollar에 포함된 경우 중복 방지
+            if (!suggestions.includes(bill)) suggestions.push(bill);
+        }
+    });
+
+    // 최대 3~4개만 표시
+    return suggestions.slice(0, 3);
   };
 
   if (!isOpen) return null;
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm">
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -54,101 +79,115 @@ export default function CashPaymentModal({
         >
           
           {/* --- [Left] Amount Display Section --- */}
-          <div className="w-[40%] bg-slate-50 p-8 flex flex-col justify-center border-r border-gray-200">
-            
-            <div className="mb-10">
-              <h3 className="text-gray-500 text-xl font-bold uppercase tracking-wider mb-2">Total Due</h3>
-              {/* ✨ [수정] $ 표기 */}
-              <div className="text-5xl font-black text-slate-800">
-                ${totalAmount.toFixed(2)}
-              </div>
-            </div>
-
-            <div className="mb-10">
-              <h3 className="text-gray-500 text-xl font-bold uppercase tracking-wider mb-2">Tendered</h3>
-              <div className={`text-5xl font-black border-b-4 pb-2 transition-colors ${
-                 receivedAmount > 0 ? 'text-blue-600 border-blue-600' : 'text-gray-300 border-gray-200'
-              }`}>
-                {/* ✨ [수정] $ 표기 */}
-                ${receivedAmount > 0 ? receivedAmount.toLocaleString() : '0.00'}
-              </div>
-            </div>
-
+          <div className="w-[45%] bg-slate-50 p-8 flex flex-col justify-between border-r border-gray-200">
             <div>
-              <h3 className="text-gray-500 text-xl font-bold uppercase tracking-wider mb-2">Change</h3>
-              <div className={`text-5xl font-black ${isSufficient ? 'text-green-600' : 'text-red-400'}`}>
-                {/* ✨ [수정] $ 표기 */}
-                ${isSufficient ? change.toFixed(2) : '0.00'}
-              </div>
-              {!isSufficient && receivedAmount > 0 && (
-                <p className="text-red-500 font-bold mt-2">Insufficient Funds</p>
-              )}
-            </div>
+                <h2 className="text-3xl font-extrabold text-slate-800 mb-8">Cash Payment</h2>
+                
+                <div className="mb-8 p-4 bg-white rounded-2xl border border-gray-200 shadow-sm">
+                    <h3 className="text-gray-500 text-sm font-bold uppercase tracking-wider mb-1">Total Due</h3>
+                    <div className="text-5xl font-black text-slate-900">
+                        ${totalAmount.toFixed(2)}
+                    </div>
+                </div>
 
+                <div className="mb-8">
+                    <h3 className="text-gray-500 text-sm font-bold uppercase tracking-wider mb-1">Tendered</h3>
+                    <div className={`text-6xl font-black transition-colors border-b-4 pb-2 ${
+                        receivedAmount > 0 ? 'text-blue-600 border-blue-600' : 'text-gray-300 border-gray-300'
+                    }`}>
+                        ${receivedAmount.toFixed(2)}
+                    </div>
+                </div>
+
+                <div>
+                    <h3 className="text-gray-500 text-sm font-bold uppercase tracking-wider mb-1">Change Due</h3>
+                    <div className={`text-5xl font-black ${isSufficient ? 'text-green-600' : 'text-red-400'}`}>
+                        ${isSufficient ? change.toFixed(2) : '0.00'}
+                    </div>
+                    {!isSufficient && receivedAmount > 0 && (
+                        <p className="text-red-500 font-bold mt-2 animate-pulse">Insufficient Funds</p>
+                    )}
+                </div>
+            </div>
+            
+            <button onClick={onClose} className="flex items-center gap-2 text-gray-500 hover:text-gray-800 font-bold transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                </svg>
+                Back to Order
+            </button>
           </div>
 
           {/* --- [Right] Keypad Section --- */}
-          <div className="w-[60%] p-8 bg-white flex flex-col">
+          <div className="w-[55%] p-6 bg-white flex flex-col">
             
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-3xl font-extrabold text-slate-800">Cash Payment</h2>
-              <button onClick={onClose} className="text-gray-400 hover:text-red-500 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-10 h-10">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+            {/* 스마트 추천 버튼 영역 */}
+            <div className="grid grid-cols-4 gap-3 mb-4 h-16">
+                <button 
+                    onClick={handleExact}
+                    className="bg-blue-50 text-blue-700 font-bold rounded-xl border-2 border-blue-100 hover:bg-blue-100 active:scale-95 transition-all text-sm"
+                >
+                    Exact<br/>${totalAmount.toFixed(2)}
+                </button>
+                {getSmartTenders().map(amount => (
+                    <button
+                        key={amount}
+                        onClick={() => setInputCents(amount * 100)}
+                        className="bg-gray-50 text-gray-700 font-bold rounded-xl border-2 border-gray-100 hover:bg-gray-100 hover:border-gray-300 active:scale-95 transition-all text-lg"
+                    >
+                        ${amount}
+                    </button>
+                ))}
             </div>
 
-            <div className="flex-1 grid grid-cols-3 gap-4 mb-6">
+            {/* 숫자 키패드 */}
+            <div className="flex-1 grid grid-cols-3 gap-3 mb-4">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
                 <button
                   key={num}
-                  onClick={() => handleNumClick(num.toString())}
-                  className="rounded-2xl bg-white border-2 border-gray-100 text-4xl font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100 transition-all shadow-sm"
+                  onClick={() => handleNumClick(num)}
+                  className="rounded-2xl bg-white border border-gray-200 text-4xl font-bold text-slate-700 shadow-[0_4px_0_0_rgba(0,0,0,0.05)] hover:bg-gray-50 active:shadow-none active:translate-y-[2px] transition-all"
                 >
                   {num}
                 </button>
               ))}
               
-              <button onClick={handleClear} className="rounded-2xl bg-orange-50 border-2 border-orange-100 text-2xl font-bold text-orange-600 hover:bg-orange-100">
+              <button 
+                onClick={handleClear} 
+                className="rounded-2xl bg-red-50 border border-red-100 text-xl font-bold text-red-500 hover:bg-red-100 active:scale-95 transition-all"
+              >
                 Clear
               </button>
               
-              <button onClick={() => handleNumClick('0')} className="rounded-2xl bg-white border-2 border-gray-100 text-4xl font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-300">
+              <button 
+                onClick={() => handleNumClick(0)} 
+                className="rounded-2xl bg-white border border-gray-200 text-4xl font-bold text-slate-700 shadow-[0_4px_0_0_rgba(0,0,0,0.05)] hover:bg-gray-50 active:shadow-none active:translate-y-[2px] transition-all"
+              >
                 0
               </button>
               
-              {/* ✨ 소수점 입력이 필요하면 여기에 '.' 버튼 추가 가능. 현재는 00 유지 */}
-              <button onClick={() => handleNumClick('00')} className="rounded-2xl bg-white border-2 border-gray-100 text-3xl font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-300">
-                00
+              <button 
+                onClick={handleBackspace} 
+                className="rounded-2xl bg-gray-100 border border-gray-200 text-slate-600 hover:bg-gray-200 active:scale-95 transition-all flex items-center justify-center"
+              >
+                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9.75L14.25 12m0 0l2.25 2.25M14.25 12l2.25-2.25M14.25 12L12 14.25m-2.58 4.92l-6.375-6.375a1.125 1.125 0 010-1.59L9.42 4.83c.211-.211.498-.33.796-.33H19.5a2.25 2.25 0 012.25 2.25v10.5a2.25 2.25 0 01-2.25 2.25h-9.284c-.298 0-.585-.119-.796-.33z" />
+                </svg>
               </button>
             </div>
 
-            <div className="flex gap-4 h-24">
-              <button 
-                onClick={handleExact}
-                className="flex-1 bg-gray-200 text-gray-700 text-2xl font-bold rounded-2xl hover:bg-gray-300 transition-colors flex flex-col items-center justify-center"
-              >
-                <span>Exact</span>
-                <span className="text-sm opacity-60">No Change</span>
-              </button>
-
-              <button 
-                onClick={() => isSufficient && onConfirm(receivedAmount, change)}
-                disabled={!isSufficient}
-                className={`flex-[2] text-3xl font-bold rounded-2xl transition-all shadow-lg flex items-center justify-center gap-3
-                  ${isSufficient 
-                    ? 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-xl hover:scale-[1.02]' 
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
-              >
-                <span>Pay</span>
-                {isSufficient && (
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-8 h-8">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
-                )}
-              </button>
-            </div>
+            {/* 결제 버튼 */}
+            <button 
+              onClick={() => isSufficient && onConfirm(receivedAmount, change)}
+              disabled={!isSufficient}
+              className={`w-full py-5 rounded-2xl text-2xl font-black shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-3
+                ${isSufficient 
+                  ? 'bg-green-600 text-white hover:bg-green-700 shadow-green-200' 
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+            >
+              <span>PAY CASH</span>
+              {isSufficient && <span className="text-3xl">➔</span>}
+            </button>
 
           </div>
         </motion.div>

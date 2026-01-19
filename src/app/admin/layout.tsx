@@ -21,14 +21,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.refresh();
   };
 
-  // ✨ [수정] 여기에 'Store Settings' 메뉴를 추가했습니다.
+  // ✨ [수정] Employees와 Reports 메뉴를 추가했습니다.
   const menuItems = [
     { name: 'Dashboard', path: '/admin', icon: '🏠' },
     { name: 'Category Management', path: '/admin/categories', icon: '📑' },
     { name: 'Menu Management', path: '/admin/menu', icon: '🍔' },
     { name: 'Modifier Management', path: '/admin/modifiers', icon: '✅' },
     { name: 'Order History', path: '/admin/orders', icon: '🧾' },
-    // 👇 새로 추가된 설정 페이지 버튼
+    
+    // ✨ 새로 추가된 기능들
+    { name: 'Employees', path: '/admin/employees', icon: '👥' },
+    { name: 'Reports', path: '/admin/reports', icon: '📊' },
+    
+    // 설정 페이지
     { name: 'Store Settings', path: '/admin/settings', icon: '⚙️' },
   ];
 
