@@ -10,23 +10,6 @@ interface PosMenuGridProps {
   onItemClick: (item: MenuItem) => void;
 }
 
-// ✨ 카테고리별 파스텔 색상 팔레트 (유지)
-const CATEGORY_COLORS = [
-  'bg-red-50 text-black-700 border-red-100 hover:bg-red-100',
-  'bg-orange-50 text-black-700 border-orange-100 hover:bg-orange-100',
-  'bg-amber-50 text-black-700 border-amber-100 hover:bg-amber-100',
-  'bg-green-50 text-black-700 border-green-100 hover:bg-green-100',
-  'bg-emerald-50 text-black-700 border-emerald-100 hover:bg-emerald-100',
-  'bg-teal-50 text-black-700 border-teal-100 hover:bg-teal-100',
-  'bg-cyan-50 text-black-700 border-cyan-100 hover:bg-cyan-100',
-  'bg-blue-50 text-black-700 border-blue-100 hover:bg-blue-100',
-  'bg-indigo-50 text-black-700 border-indigo-100 hover:bg-indigo-100',
-  'bg-violet-50 text-black-700 border-violet-100 hover:bg-violet-100',
-  'bg-purple-50 text-black-700 border-purple-100 hover:bg-purple-100',
-  'bg-fuchsia-50 text-black-700 border-fuchsia-100 hover:bg-fuchsia-100',
-  'bg-pink-50 text-black-700 border-pink-100 hover:bg-pink-100',
-];
-
 export default function PosMenuGrid({
   categories,
   selectedCategory,
@@ -35,26 +18,30 @@ export default function PosMenuGrid({
   onItemClick
 }: PosMenuGridProps) {
 
-  // ✨ [안전장치] 데이터가 로딩 중이거나 없을 때 에러 방지
   const safeItems = filteredItems || [];
 
   return (
-    <section className="flex-1 flex flex-row bg-gray-200 h-full overflow-hidden">
+    // ✨ [다크모드] 전체 배경 bg-black
+    <section className="flex-1 flex flex-row bg-black h-full overflow-hidden">
       
-      {/* 1. 카테고리 (세로 탭) - 왼쪽 배치 (기존 코드 유지) */}
-      <div className="w-56 bg-white border-r border-gray-300 flex flex-col gap-3 p-3 overflow-y-auto shrink-0 shadow-inner">
-        {categories.map((cat, index) => {
-          const colorClass = CATEGORY_COLORS[index % CATEGORY_COLORS.length];
+      {/* 1. 카테고리 (세로 탭) - 왼쪽 Sidebar */}
+      {/* ✨ [다크모드] 배경 bg-gray-900, 테두리 border-gray-800 */}
+      <div className="w-72 bg-gray-900 border-r border-gray-800 flex flex-col gap-3 p-3 overflow-y-auto shrink-0 shadow-2xl z-10">
+        
+        {/* 카테고리 리스트 */}
+        {categories.map((cat) => {
           const isSelected = selectedCategory === cat.id;
-
           return (
             <button
               key={cat.id}
               onClick={() => onSelectCategory(cat.id)}
-              className={`w-full py-6 px-2 rounded-xl text-xl font-bold transition-all shadow-sm border-2 whitespace-normal leading-tight
+              // ✨ [디자인 변경] 
+              // 선택됨: 파란색 (bg-blue-600)
+              // 선택안됨: 어두운 회색 (bg-gray-800) + 글씨 회색
+              className={`shrink-0 w-full min-h-[6rem] px-4 rounded-2xl text-2xl font-bold transition-all shadow-md border-2 whitespace-normal leading-tight flex items-center justify-center text-center
                 ${isSelected 
-                  ? 'bg-slate-800 text-white border-slate-800 scale-105 shadow-md z-10' 
-                  : `${colorClass} opacity-90 hover:opacity-100 hover:scale-[1.02]`
+                  ? 'bg-blue-600 text-white border-blue-500 shadow-blue-900/50 scale-105 z-10 ring-2 ring-blue-400' 
+                  : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700 hover:text-white hover:border-gray-500'
                 }`}
             >
               {cat.name}
@@ -62,63 +49,70 @@ export default function PosMenuGrid({
           );
         })}
 
-        <div className="border-t border-gray-200 my-2"></div>
+        <div className="border-t border-gray-700 my-2"></div>
 
+        {/* ✨ [위치 변경] ALL 버튼을 맨 아래로 이동 */}
         <button
           onClick={() => onSelectCategory('All')}
-          className={`w-full py-6 px-2 rounded-xl text-xl font-bold transition-all shadow-sm border-2
+          className={`shrink-0 w-full min-h-[5rem] rounded-2xl text-3xl font-black transition-all shadow-md border-2
             ${selectedCategory === 'All' 
-              ? 'bg-slate-800 text-white border-slate-800 scale-105 shadow-md' 
-              : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-white hover:border-gray-400'
+              ? 'bg-blue-600 text-white border-blue-500 scale-105 shadow-blue-900/50 z-20' 
+              : 'bg-gray-800 text-gray-500 border-gray-700 hover:bg-gray-700 hover:text-white'
             }`}
         >
           ALL
         </button>
+        
+        {/* 하단 여백 확보 (스크롤 시 가려짐 방지) */}
+        <div className="h-10"></div>
       </div>
 
-      {/* 2. 메뉴 아이템 그리드 (수정됨) */}
-      <div className="flex-1 overflow-y-auto p-4 bg-gray-200">
+      {/* 2. 메뉴 아이템 그리드 */}
+      {/* ✨ [다크모드] 배경 bg-black */}
+      <div className="flex-1 overflow-y-auto p-5 bg-black">
         {safeItems.length === 0 ? (
-           <div className="h-full flex items-center justify-center text-gray-500">
-             <p className="text-2xl font-bold">No items available.</p>
+           <div className="h-full flex items-center justify-center text-gray-600">
+             <p className="text-3xl font-bold">No items in this category.</p>
            </div>
         ) : (
-          <div className="grid grid-cols-3 xl:grid-cols-4 gap-4 pb-20">
+          <div className="grid grid-cols-3 gap-5 pb-20">
             {safeItems.map((item) => (
-              <div 
+              <button 
                 key={item.id}
                 onClick={() => item.is_available && onItemClick(item)}
-                className={`flex flex-col justify-between p-5 rounded-2xl shadow-sm cursor-pointer transition-all border-2 h-auto min-h-[160px]
+                // ✨ [다크모드] 카드 배경 bg-gray-900, 테두리 border-gray-800
+                className={`relative h-64 flex flex-col justify-between p-6 rounded-3xl shadow-lg transition-all border-2 text-left group
                   ${item.is_available 
-                    ? 'bg-white border-transparent hover:border-blue-500 hover:shadow-lg active:scale-95' 
-                    : 'bg-gray-100 border-gray-300 opacity-60 cursor-not-allowed grayscale'}`}
+                    ? 'bg-gray-900 border-gray-800 hover:border-blue-500 hover:bg-gray-800 hover:shadow-blue-900/20 active:scale-95' 
+                    : 'bg-gray-900/50 border-gray-800 opacity-40 cursor-not-allowed grayscale'}`}
               >
                 {/* 상단: 이름 및 설명 */}
-                <div className="flex-1">
-                  {/* ✨ 이름 (name 우선) */}
-                  <span className="block font-extrabold text-2xl text-gray-800 leading-tight mb-2 line-clamp-2">
-                    {item.name}
-                  </span>
+                <div className="w-full">
+                  {/* ✨ [다크모드] 이름 흰색 text-white */}
+                  <h3 className="font-black text-3xl text-white leading-none mb-3 line-clamp-2 group-hover:text-blue-400">
+                    {item.posName || item.name}
+                  </h3>
                   
-                  {/* ✨ 설명 (Description) 추가 */}
+                  {/* ✨ [다크모드] 설명 회색 text-gray-400 */}
                   {item.description && (
-                    <p className="text-sm text-gray-500 font-medium leading-snug line-clamp-3">
+                    <p className="text-xl text-gray-400 font-medium leading-snug line-clamp-2">
                       {item.description}
                     </p>
                   )}
                 </div>
 
-                {/* 하단: 가격 및 품절 표시 */}
-                <div className="mt-4 pt-3 border-t border-gray-100 flex justify-end items-end">
+                {/* 하단: 가격 */}
+                <div className="w-full flex justify-end items-end mt-2">
                   {!item.is_available ? (
-                    <span className="text-red-500 font-black text-lg">SOLD OUT</span>
+                    <span className="text-red-500 font-black text-2xl rotate-[-5deg] border-2 border-red-500 px-2 rounded-lg">SOLD OUT</span>
                   ) : (
-                    <span className="font-black text-2xl text-gray-700">
+                    // ✨ [다크모드] 가격 파란색 강조
+                    <span className="font-black text-3xl text-gray-400 bg-gray-800 px-3 py-1 rounded-xl border border-gray-700">
                       ${item.price.toFixed(2)}
                     </span>
                   )}
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}

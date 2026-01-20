@@ -333,7 +333,7 @@ export default function Page() {
   if (isLoading) return <div className="flex h-screen items-center justify-center font-bold">Loading POS Data...</div>;
 
   return (
-    <div className="flex h-screen bg-gray-100 overflow-hidden relative">
+    <div className="flex h-screen bg-black overflow-hidden relative">
       <div className="absolute top-2 right-4 z-50 flex items-center gap-3">
           <div className="bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-sm border border-gray-200 flex items-center gap-2">
               <span className="text-sm text-gray-500">Staff:</span>
