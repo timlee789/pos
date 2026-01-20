@@ -13,10 +13,14 @@ import ModifierModal from '@/components/ModifierModal';
 import DayWarningModal from '@/components/DayWarningModal';
 import EmployeeLogin from '@/components/pos/EmployeeLogin';
 import SpecialRequestModal from '@/components/pos/SpecialRequestModal';
+import { usePosSync } from '@/lib/usePosSync'; // 손님 화면 동기화용 (필요시 사용)
 
 const ADMIN_CONFIG = {
   enableToGoTableNum: true, 
 };
+
+// ✨ [수정됨] 프린터 서버 IP 설정
+const PRINTER_SERVER_URL = 'http://192.168.50.106:4000/print';
 
 interface TransactionState {
   method: 'CASH' | 'CARD' | null;
@@ -51,7 +55,7 @@ export default function PosPage() {
   const [warningTargetDay, setWarningTargetDay] = useState('');
   const [editingNoteItem, setEditingNoteItem] = useState<CartItem | null>(null);
 
-  // ✨ [New] 카드 결제 진행 상태 (로딩 모달용)
+  // 카드 결제 진행 상태 (로딩 모달용)
   const [isCardProcessing, setIsCardProcessing] = useState(false);
   const [cardStatusMessage, setCardStatusMessage] = useState('');
 
@@ -173,7 +177,7 @@ export default function PosPage() {
     if (txn.method === 'CASH') {
       setIsCashModalOpen(true);
     } else {
-      // ✨ 바로 카드 결제 프로세스 시작
+      // 바로 카드 결제 프로세스 시작
       handleCardPayment(amt);
     }
   };
@@ -212,7 +216,8 @@ export default function PosPage() {
 
         // 2. Printer Server Call
         try {
-            await fetch('http://localhost:4000/print', { 
+            // ✨ [수정됨] 상단에 정의된 IP로 요청 전송
+            await fetch(PRINTER_SERVER_URL, { 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -231,7 +236,7 @@ export default function PosPage() {
             });
         } catch (e) {
             console.error("Printer Error:", e);
-            alert("Order saved, but printing failed. Is Printer Server running?");
+            alert(`Order saved, but printing failed. Check IP: ${PRINTER_SERVER_URL}`);
         }
 
         // 3. Finish
@@ -253,15 +258,14 @@ export default function PosPage() {
     }
   };
 
-  // 현금 결제 완료 핸들러 (모달에서 호출)
+  // 현금 결제 완료 핸들러
   const handleCashPaymentConfirm = (received: number, change: number) => {
       setIsCashModalOpen(false);
-      // 거스름돈 알림은 여기서 보여주고 진행
       alert(`Please return change: $${change.toFixed(2)}`);
       finalizeTransaction('CASH');
   };
 
-  // ✨ [카드 결제 로직] Stripe API 호출 및 Polling
+  // 카드 결제 로직
   const handleCardPayment = async (currentTip: number) => {
       setIsCardProcessing(true);
       setCardStatusMessage("Connecting to Reader...");
@@ -269,7 +273,7 @@ export default function PosPage() {
       try {
         const totalToPay = getSubtotal() + currentTip;
 
-        // 1. 결제 시작 (Process)
+        // 1. 결제 시작
         const processRes = await fetch('/api/stripe/process', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -282,10 +286,10 @@ export default function PosPage() {
         const { paymentIntentId } = processData;
         setCardStatusMessage("💳 Please Tap or Insert Card");
 
-        // 2. 상태 확인 루프 (Polling) - 2분간 확인
+        // 2. 상태 확인 루프 (Polling)
         let isSuccess = false;
         for (let i = 0; i < 120; i++) {
-            if (!isCardProcessing) break; // 사용자가 취소했거나 컴포넌트 언마운트 시 중단
+            if (!isCardProcessing) break; 
 
             await new Promise(resolve => setTimeout(resolve, 1000));
             
@@ -331,14 +335,15 @@ export default function PosPage() {
   if (!currentEmployee) return <EmployeeLogin onLoginSuccess={setCurrentEmployee} />;
   if (isLoading) return <div className="flex h-screen items-center justify-center font-bold">Loading...</div>;
 
+  // ✨ Night Mode (Dark Mode) UI 유지 (bg-black 등)
   return (
-    <div className="flex h-screen bg-gray-100 overflow-hidden relative">
+    <div className="flex h-screen bg-black overflow-hidden relative">
       <div className="absolute top-2 right-4 z-50 flex items-center gap-3">
-          <div className="bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-sm border border-gray-200 flex items-center gap-2">
-              <span className="text-sm text-gray-500">Staff:</span>
-              <span className="font-bold text-gray-800">{currentEmployee.name}</span>
+          <div className="bg-gray-800/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-sm border border-gray-700 flex items-center gap-2">
+              <span className="text-sm text-gray-400">Staff:</span>
+              <span className="font-bold text-white">{currentEmployee.name}</span>
           </div>
-          <button onClick={handleLogout} className="bg-gray-800 text-white px-4 py-2 rounded-full text-xs font-bold hover:bg-black shadow-md">LOGOUT</button>
+          <button onClick={handleLogout} className="bg-red-600 text-white px-4 py-2 rounded-full text-xs font-bold hover:bg-red-700 shadow-md">LOGOUT</button>
       </div>
 
       <div className="w-1/3 h-full pt-12">
@@ -360,7 +365,7 @@ export default function PosPage() {
       
       <CashPaymentModal isOpen={isCashModalOpen} onClose={resetFlow} totalAmount={getSubtotal() + txn.tipAmount} onConfirm={handleCashPaymentConfirm} />
 
-      {/* ✨ [New] 카드 결제 진행 중 로딩 화면 */}
+      {/* 카드 결제 진행 중 로딩 화면 */}
       {isCardProcessing && (
         <div className="fixed inset-0 z-[9999] bg-black/80 flex flex-col items-center justify-center text-white backdrop-blur-md">
            <div className="animate-spin rounded-full h-20 w-20 border-b-4 border-white mb-8"></div>
