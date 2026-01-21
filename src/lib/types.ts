@@ -26,6 +26,10 @@ export interface MenuItem {
   is_available?: boolean;
   clover_id?: string;
   pos_name?: string;
+
+  // ✨ [추가] 노출 여부 설정
+  is_kiosk_visible?: boolean;
+  is_pos_visible?: boolean;
 }
 
 // 3. 카테고리

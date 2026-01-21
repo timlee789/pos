@@ -89,9 +89,9 @@ export default function PosMenuGrid({
                 {/* 상단: 이름 및 설명 */}
                 <div className="w-full">
                   {/* ✨ [다크모드] 이름 흰색 text-white */}
-                  <h3 className="font-black text-3xl text-white leading-none mb-3 line-clamp-2 group-hover:text-blue-400">
-                    {/* ✨ [수정됨] 무조건 Admin 이름(name)만 표시 */}
-                    {item.name}
+                 <h3 className="font-black text-3xl text-white leading-none mb-3 line-clamp-2 group-hover:text-blue-400">
+               {/* ✨ POS 전용 이름(posName)이 있으면 그걸 쓰고, 없으면 원래 이름(name) 사용 */}
+                 {item.posName || item.name}
                   </h3>
                   
                   {/* ✨ [다크모드] 설명 회색 text-gray-400 */}

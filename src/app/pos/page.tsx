@@ -1,25 +1,25 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getKioskData } from '@/lib/dataFetcher';
+import { getPosData } from '@/lib/dataFetcher';
 import { MenuItem, Category, CartItem, ModifierOption, ModifierGroup } from '@/lib/types';
 import PosMenuGrid from '@/components/pos/PosMenuGrid';
 import PosCart from '@/components/pos/PosCart';
 import CashPaymentModal from '@/components/pos/CashPaymentModal';
-import OrderTypeModal from '@/components/OrderTypeModal';
-import TableNumberModal from '@/components/TableNumberModal';
-import TipModal from '@/components/TipModal';
-import ModifierModal from '@/components/ModifierModal';
-import DayWarningModal from '@/components/DayWarningModal';
+import OrderTypeModal from '@/components/shared/OrderTypeModal';
+import TableNumberModal from '@/components/shared/TableNumberModal';
+import TipModal from '@/components/shared/TipModal';
+import ModifierModal from '@/components/shared/ModifierModal';
+import DayWarningModal from '@/components/shared/DayWarningModal';
 import EmployeeLogin from '@/components/pos/EmployeeLogin';
 import SpecialRequestModal from '@/components/pos/SpecialRequestModal';
-import { usePosSync } from '@/lib/usePosSync'; // 손님 화면 동기화용 (필요시 사용)
+import CustomerNameModal from '@/components/pos/CustomerNameModal';
+import OrderListModal from '@/components/pos/OrderListModal';
 
 const ADMIN_CONFIG = {
   enableToGoTableNum: true, 
 };
 
-// ✨ [수정됨] 프린터 서버 IP 설정
 const PRINTER_SERVER_URL = 'http://192.168.50.106:4000/print';
 
 interface TransactionState {
@@ -36,7 +36,6 @@ interface Employee {
 }
 
 export default function PosPage() {
-  // --- States ---
   const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -45,7 +44,9 @@ export default function PosPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [isLoading, setIsLoading] = useState(true);
 
-  // Flow Modals
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null); 
+  const [isOrderListOpen, setIsOrderListOpen] = useState(false);
+
   const [isOrderTypeOpen, setIsOrderTypeOpen] = useState(false);
   const [isTableNumOpen, setIsTableNumOpen] = useState(false);
   const [isTipOpen, setIsTipOpen] = useState(false);
@@ -54,8 +55,8 @@ export default function PosPage() {
   const [showDayWarning, setShowDayWarning] = useState(false);
   const [warningTargetDay, setWarningTargetDay] = useState('');
   const [editingNoteItem, setEditingNoteItem] = useState<CartItem | null>(null);
+  const [isPhoneOrderModalOpen, setIsPhoneOrderModalOpen] = useState(false);
 
-  // 카드 결제 진행 상태 (로딩 모달용)
   const [isCardProcessing, setIsCardProcessing] = useState(false);
   const [cardStatusMessage, setCardStatusMessage] = useState('');
 
@@ -63,12 +64,18 @@ export default function PosPage() {
     method: null, orderType: null, tableNum: null, tipAmount: 0,
   });
 
-  // --- Data Load ---
+  useEffect(() => {
+    history.pushState(null, '', location.href);
+    const handlePopState = () => history.pushState(null, '', location.href);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsLoading(true);
-        const data = await getKioskData();
+        const data = await getPosData(); 
         setCategories(data.categories);
         setMenuItems(data.items);
         setModifiersObj(data.modifiersObj);
@@ -79,25 +86,6 @@ export default function PosPage() {
     loadData();
   }, []);
 
-  // ✨ [추가] 안드로이드 뒤로 가기 버튼 막기 (History Lock)
-  useEffect(() => {
-    // 1. 현재 페이지를 히스토리에 강제로 한 번 더 밀어넣음
-    history.pushState(null, '', location.href);
-
-    // 2. 뒤로 가기 이벤트(popstate)가 감지되면 다시 현재 페이지를 밀어넣음
-    const handlePopState = () => {
-      history.pushState(null, '', location.href);
-      // 필요하다면 여기에 "뒤로 가실 수 없습니다" 같은 경고창을 띄울 수도 있음
-    };
-
-    window.addEventListener('popstate', handlePopState);
-
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, []);
-  
-  // --- Cart & Logic ---
   const addToCart = (item: MenuItem, modifiers: ModifierOption[] = []) => {
      const optionsPrice = modifiers.reduce((acc, opt) => acc + opt.price, 0);
      const isSpecialSet = item.category === 'Special';
@@ -117,14 +105,12 @@ export default function PosPage() {
      if (isSpecialSet) {
        const desc = item.description?.toLowerCase() || '';
        if (desc.includes('fries') || desc.includes('ff')) {
-          const friesItem = menuItems.find(i => i.name === '1/2 FF' || i.name === 'French Fries' || i.posName === '1/2 FF');
-          // @ts-ignore
-          if (friesItem) newItems.push({ ...friesItem, selectedModifiers: [], totalPrice: 0, quantity: 1, uniqueCartId: Date.now().toString() + Math.random(), name: `(Set) ${friesItem.name}`, groupId: currentGroupId });
+          const friesItem = menuItems.find(i => i.name === '1/2 FF' || i.name === 'French Fries');
+          if (friesItem) newItems.push({ ...friesItem, selectedModifiers: [], totalPrice: 0, quantity: 1, uniqueCartId: Date.now().toString() + Math.random(), name: `(Set) ${friesItem.name}`, groupId: currentGroupId } as any);
        }
        if (desc.includes('drink')) {
-          const drinkItem = menuItems.find(i => i.name === 'Soft Drink' || i.posName === 'Soft Drink');
-          // @ts-ignore
-          if (drinkItem) newItems.push({ ...drinkItem, selectedModifiers: [], totalPrice: 0, quantity: 1, uniqueCartId: Date.now().toString() + Math.random(), name: `(Set) ${drinkItem.name}`, groupId: currentGroupId });
+          const drinkItem = menuItems.find(i => i.name === 'Soft Drink');
+          if (drinkItem) newItems.push({ ...drinkItem, selectedModifiers: [], totalPrice: 0, quantity: 1, uniqueCartId: Date.now().toString() + Math.random(), name: `(Set) ${drinkItem.name}`, groupId: currentGroupId } as any);
        }
      }
      setCart((prev) => [...prev, ...newItems]);
@@ -134,7 +120,6 @@ export default function PosPage() {
   const removeFromCart = (uniqueId: string) => {
     setCart(prev => {
         const targetItem = prev.find(item => item.uniqueCartId === uniqueId);
-        // @ts-ignore
         if (targetItem && targetItem.groupId) return prev.filter(item => item.groupId !== targetItem.groupId);
         return prev.filter(item => item.uniqueCartId !== uniqueId);
     });
@@ -164,11 +149,102 @@ export default function PosPage() {
     }
   };
 
-  // --- Payment Handlers ---
+  const handlePhoneOrderClick = () => {
+    if (cart.length === 0) return alert('⚠️ Cart is empty.');
+    setIsPhoneOrderModalOpen(true);
+  };
+
+  const handlePhoneOrderConfirm = async (customerName: string) => {
+    setIsPhoneOrderModalOpen(false); 
+    const subtotalVal = getSubtotal();
+    const displayTableNum = `To Go: ${customerName}`;
+
+    try {
+        console.log("=== Creating Phone Order (Open) ===");
+        const saveRes = await fetch('/api/orders/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                items: cart,
+                subtotal: subtotalVal,
+                tax: 0, tip: 0, total: subtotalVal,
+                paymentMethod: 'PENDING',
+                orderType: 'to_go',
+                tableNum: displayTableNum,
+                employeeName: currentEmployee?.name || 'Unknown',
+                status: 'open' 
+            })
+        });
+
+        const orderResult = await saveRes.json();
+        if (!orderResult.success) throw new Error("DB Save Failed: " + orderResult.error);
+        
+        try {
+            await fetch(PRINTER_SERVER_URL, { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    items: cart,
+                    orderNumber: orderResult.orderNumber, 
+                    tableNumber: displayTableNum,
+                    orderType: 'to_go',
+                    date: new Date().toLocaleString(),
+                    subtotal: subtotalVal, tax: 0, tipAmount: 0, totalAmount: subtotalVal,
+                    paymentMethod: "Unpaid (Phone)", 
+                    employeeName: currentEmployee?.name || 'Unknown',
+                    printKitchenOnly: true 
+                })
+            });
+            alert(`✅ Phone Order #${orderResult.orderNumber} Created!`);
+        } catch (e) { console.error(e); alert("Saved but Print Failed."); }
+
+        setCart([]);
+        setCurrentOrderId(null);
+
+    } catch (error: any) { alert("Error: " + error.message); }
+  };
+
+  const handleRecallOrder = (order: any) => {
+    const recreatedCart: CartItem[] = order.order_items.map((dbItem: any, idx: number) => ({
+        id: dbItem.menu_item_id,
+        name: dbItem.item_name,
+        price: dbItem.price,
+        quantity: dbItem.quantity,
+        selectedModifiers: dbItem.modifiers || [],
+        totalPrice: dbItem.price,
+        uniqueCartId: `recalled-${order.id}-${idx}`,
+        notes: dbItem.notes || ''
+    }));
+
+    setCart(recreatedCart);
+    
+    let orderType: 'dine_in' | 'to_go' = 'dine_in';
+    let tableNumVal = order.table_number;
+
+    if (order.order_type === 'to_go' || order.table_number.toLowerCase().includes('to go')) {
+        orderType = 'to_go';
+    }
+
+    setTxn({
+        method: null,
+        orderType: orderType,
+        tableNum: tableNumVal,
+        tipAmount: 0
+    });
+
+    setCurrentOrderId(order.id);
+    setIsOrderListOpen(false);
+  };
+
   const handlePaymentStart = (method: 'CASH' | 'CARD') => {
     if (cart.length === 0) return alert('Cart is empty.');
-    setTxn({ method, orderType: null, tableNum: null, tipAmount: 0 });
-    setIsOrderTypeOpen(true);
+    if (currentOrderId && txn.tableNum) {
+        setTxn(prev => ({ ...prev, method }));
+        setIsTipOpen(true);
+    } else {
+        setTxn({ method, orderType: null, tableNum: null, tipAmount: 0 });
+        setIsOrderTypeOpen(true);
+    }
   };
 
   const handleOrderTypeSelect = (type: 'dine_in' | 'to_go') => {
@@ -187,54 +263,72 @@ export default function PosPage() {
     setIsTipOpen(true);
   };
 
-  // 팁 선택 후 분기점 (현금 vs 카드)
   const handleTipSelect = (amt: number) => {
     setTxn((prev) => ({ ...prev, tipAmount: amt }));
     setIsTipOpen(false);
-
-    if (txn.method === 'CASH') {
-      setIsCashModalOpen(true);
-    } else {
-      // 바로 카드 결제 프로세스 시작
-      handleCardPayment(amt);
-    }
+    if (txn.method === 'CASH') setIsCashModalOpen(true);
+    else handleCardPayment(amt);
   };
 
-  // ✨ [통합 결제 처리 함수] DB 저장 -> 프린트 -> 초기화
+  // ✨ [수정] 결제 완료 및 DB 저장 (수수료 로직 포함)
   const finalizeTransaction = async (paymentMethod: 'CASH' | 'CARD') => {
     try {
         const subtotalVal = getSubtotal();
-        const finalTotal = subtotalVal + txn.tipAmount;
+        
+        // ✨ [추가] 카드일 경우 3% 수수료 계산
+        const creditCardFee = paymentMethod === 'CARD' ? subtotalVal * 0.03 : 0;
+        
+        // 최종 금액 = 소계 + 수수료 + 팁
+        const finalTotal = subtotalVal + creditCardFee + txn.tipAmount;
+        
         const displayTableNum = txn.tableNum 
             ? (txn.orderType === 'to_go' ? `To Go #${txn.tableNum}` : txn.tableNum)
             : (txn.orderType === 'to_go' ? 'To Go' : '00');
 
-        console.log("=== Finalizing Transaction ===");
+        console.log(`=== Finalizing Transaction (Fee: ${creditCardFee}) ===`);
+        let newOrderNumber = '';
 
-        // 1. DB Save
-        const saveRes = await fetch('/api/orders/create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                items: cart,
-                subtotal: subtotalVal,
-                tax: 0,
-                tip: txn.tipAmount,
-                total: finalTotal,
-                paymentMethod: paymentMethod,
-                orderType: txn.orderType,
-                tableNum: displayTableNum,
-                employeeName: currentEmployee?.name || 'Unknown' 
-            })
-        });
+        if (currentOrderId) {
+            console.log(`Updating existing order ${currentOrderId}...`);
+            const updateRes = await fetch('/api/orders/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId: currentOrderId,
+                    paymentMethod: paymentMethod,
+                    tip: txn.tipAmount,
+                    // ✨ 수수료 포함된 총액 전송
+                    total: finalTotal 
+                })
+            });
+            const updateResult = await updateRes.json();
+            if (!updateResult.success) throw new Error("Update Failed: " + updateResult.error);
+            newOrderNumber = updateResult.order.order_number; 
 
-        const orderResult = await saveRes.json();
-        if (!orderResult.success) throw new Error("DB Save Failed: " + orderResult.error);
-        const newOrderNumber = orderResult.orderNumber;
+        } else {
+            const saveRes = await fetch('/api/orders/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    items: cart,
+                    subtotal: subtotalVal,
+                    // ✨ 3% 수수료를 'tax' 필드에 저장 (편의상)
+                    tax: creditCardFee, 
+                    tip: txn.tipAmount,
+                    total: finalTotal,
+                    paymentMethod: paymentMethod,
+                    orderType: txn.orderType,
+                    tableNum: displayTableNum,
+                    employeeName: currentEmployee?.name || 'Unknown',
+                    status: 'paid' 
+                })
+            });
+            const orderResult = await saveRes.json();
+            if (!orderResult.success) throw new Error("DB Save Failed: " + orderResult.error);
+            newOrderNumber = orderResult.orderNumber;
+        }
 
-        // 2. Printer Server Call
         try {
-            // ✨ [수정됨] 상단에 정의된 IP로 요청 전송
             await fetch(PRINTER_SERVER_URL, { 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -245,19 +339,16 @@ export default function PosPage() {
                     orderType: txn.orderType,
                     date: new Date().toLocaleString(),
                     subtotal: subtotalVal,
-                    tax: 0,
+                    // ✨ 영수증에 수수료 표시
+                    tax: creditCardFee, 
                     tipAmount: txn.tipAmount,
                     totalAmount: finalTotal,
                     paymentMethod: paymentMethod,
                     employeeName: currentEmployee?.name || 'Unknown' 
                 })
             });
-        } catch (e) {
-            console.error("Printer Error:", e);
-            alert(`Order saved, but printing failed. Check IP: ${PRINTER_SERVER_URL}`);
-        }
+        } catch (e) { console.error("Printer Error:", e); }
 
-        // 3. Finish
         if (paymentMethod === 'CARD') {
             setCardStatusMessage("✅ Payment Complete!");
             await new Promise(r => setTimeout(r, 1000));
@@ -268,6 +359,7 @@ export default function PosPage() {
 
         setCart([]); 
         setTxn({ method: null, orderType: null, tableNum: null, tipAmount: 0 });
+        setCurrentOrderId(null); 
         
     } catch (error: any) {
         console.error("Finalize Error", error);
@@ -276,63 +368,52 @@ export default function PosPage() {
     }
   };
 
-  // 현금 결제 완료 핸들러
   const handleCashPaymentConfirm = (received: number, change: number) => {
       setIsCashModalOpen(false);
       alert(`Please return change: $${change.toFixed(2)}`);
       finalizeTransaction('CASH');
   };
 
-  // 카드 결제 로직
+  // ✨ [수정] 카드 결제 시 3% 수수료 포함 청구
   const handleCardPayment = async (currentTip: number) => {
       setIsCardProcessing(true);
-      setCardStatusMessage("Connecting to Reader...");
+      
+      const subtotal = getSubtotal();
+      // ✨ 3% 수수료 추가
+      const ccFee = subtotal * 0.03;
+      const totalToPay = subtotal + ccFee + currentTip;
+
+      setCardStatusMessage(`Charging $${totalToPay.toFixed(2)} (incl. 3% fee)...`);
       
       try {
-        const totalToPay = getSubtotal() + currentTip;
-
-        // 1. 결제 시작
         const processRes = await fetch('/api/stripe/process', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ amount: totalToPay }),
         });
         const processData = await processRes.json();
-        
         if (!processData.success) throw new Error(processData.error);
         
         const { paymentIntentId } = processData;
         setCardStatusMessage("💳 Please Tap or Insert Card");
 
-        // 2. 상태 확인 루프 (Polling)
         let isSuccess = false;
         for (let i = 0; i < 120; i++) {
             if (!isCardProcessing) break; 
-
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
             const checkRes = await fetch('/api/stripe/capture', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ paymentIntentId }),
             });
             const checkData = await checkRes.json();
-
-            if (checkData.status === 'succeeded') {
-                isSuccess = true;
-                break;
-            } else if (checkData.status === 'failed') {
-                throw new Error("Payment Failed / Canceled");
-            }
+            if (checkData.status === 'succeeded') { isSuccess = true; break; } 
+            else if (checkData.status === 'failed') { throw new Error("Failed / Canceled"); }
         }
-
         if (isSuccess) {
             setCardStatusMessage("Processing Order...");
             await finalizeTransaction('CARD');
-        } else {
-            throw new Error("Payment Timeout. Please try again.");
-        }
-
+        } else { throw new Error("Payment Timeout"); }
       } catch (error: any) {
           console.error(error);
           alert("Card Payment Error: " + error.message);
@@ -344,7 +425,7 @@ export default function PosPage() {
     setIsOrderTypeOpen(false); setIsTableNumOpen(false); setIsTipOpen(false); 
     setIsCashModalOpen(false); setSelectedItemForMod(null); setShowDayWarning(false);
   };
-  const handleLogout = () => { setCurrentEmployee(null); setCart([]); };
+  const handleLogout = () => { setCurrentEmployee(null); setCart([]); setCurrentOrderId(null); };
 
   const filteredItems = selectedCategory === 'All' 
     ? menuItems 
@@ -353,10 +434,19 @@ export default function PosPage() {
   if (!currentEmployee) return <EmployeeLogin onLoginSuccess={setCurrentEmployee} />;
   if (isLoading) return <div className="flex h-screen items-center justify-center font-bold">Loading...</div>;
 
-  // ✨ Night Mode (Dark Mode) UI 유지 (bg-black 등)
   return (
     <div className="flex h-screen bg-black overflow-hidden relative">
       <div className="absolute top-2 right-4 z-50 flex items-center gap-3">
+          <button 
+             onClick={() => setIsOrderListOpen(true)}
+             className="px-4 py-2 rounded-full text-sm font-black shadow-md transition-all border bg-blue-600 text-white border-blue-500 hover:bg-blue-500 flex items-center gap-2"
+          >
+             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+             </svg>
+             ORDERS
+          </button>
+
           <div className="bg-gray-800/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-sm border border-gray-700 flex items-center gap-2">
               <span className="text-sm text-gray-400">Staff:</span>
               <span className="font-bold text-white">{currentEmployee.name}</span>
@@ -365,14 +455,20 @@ export default function PosPage() {
       </div>
 
       <div className="w-1/3 h-full pt-12">
-        <PosCart cart={cart} subtotal={getSubtotal()} onRemoveItem={removeFromCart} onPaymentStart={handlePaymentStart} onEditNote={setEditingNoteItem} />
+        <PosCart 
+           cart={cart} 
+           subtotal={getSubtotal()} 
+           onRemoveItem={removeFromCart} 
+           onPaymentStart={handlePaymentStart} 
+           onEditNote={setEditingNoteItem} 
+           onPhoneOrder={handlePhoneOrderClick}
+        />
       </div>
 
       <div className="flex-1 h-full pt-12">
         <PosMenuGrid categories={categories} selectedCategory={selectedCategory} onSelectCategory={setSelectedCategory} filteredItems={filteredItems} onItemClick={handleItemClick} />
       </div>
 
-      {/* --- Modals --- */}
       {showDayWarning && <DayWarningModal targetDay={warningTargetDay} onClose={() => setShowDayWarning(false)} />}
       {selectedItemForMod && <ModifierModal item={selectedItemForMod} modifiersObj={modifiersObj} onClose={() => setSelectedItemForMod(null)} onConfirm={addToCart} />}
       {editingNoteItem && <SpecialRequestModal initialNote={editingNoteItem.notes || ""} onClose={() => setEditingNoteItem(null)} onConfirm={handleSaveNote} />}
@@ -381,9 +477,12 @@ export default function PosPage() {
       {isTableNumOpen && <TableNumberModal onConfirm={handleTableNumConfirm} onCancel={resetFlow} />}
       {isTipOpen && <TipModal subtotal={getSubtotal()} onSelectTip={handleTipSelect} />}
       
+      {isPhoneOrderModalOpen && <CustomerNameModal onClose={() => setIsPhoneOrderModalOpen(false)} onConfirm={handlePhoneOrderConfirm} />}
+      
+      {isOrderListOpen && <OrderListModal onClose={() => setIsOrderListOpen(false)} onRecallOrder={handleRecallOrder} />}
+
       <CashPaymentModal isOpen={isCashModalOpen} onClose={resetFlow} totalAmount={getSubtotal() + txn.tipAmount} onConfirm={handleCashPaymentConfirm} />
 
-      {/* 카드 결제 진행 중 로딩 화면 */}
       {isCardProcessing && (
         <div className="fixed inset-0 z-[9999] bg-black/80 flex flex-col items-center justify-center text-white backdrop-blur-md">
            <div className="animate-spin rounded-full h-20 w-20 border-b-4 border-white mb-8"></div>

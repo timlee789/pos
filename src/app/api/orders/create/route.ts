@@ -18,25 +18,28 @@ export async function POST(request: Request) {
       paymentMethod, 
       orderType, 
       tableNum,
-      // ✨ [추가] 프론트엔드에서 보낸 직원 이름 받기
-      employeeName 
+      employeeName,
+      // ✨ [추가] 프론트엔드에서 보낸 주문 상태 (없으면 undefined)
+      status 
     } = body;
 
-    console.log("📝 DB 저장 시작...");
+    console.log(`📝 DB 저장 시작... (Type: ${orderType}, Status: ${status || 'paid'})`);
 
     // 1. Orders 테이블 저장
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
       .insert({
         total_amount: total,
-        status: 'paid',
+        
+        // ✨ [수정] 프론트에서 status를 보내면 그걸 쓰고, 안 보내면 'paid' (기존 호환성 유지)
+        status: status || 'paid', 
+        
         table_number: tableNum,
         order_type: orderType,
         subtotal: subtotal,
         tax: tax,
         tip: tip,
         payment_method: paymentMethod,
-        // ✨ [추가] 직원 이름 DB에 저장 (컬럼명: employee_name)
         employee_name: employeeName 
       })
       .select()
@@ -54,15 +57,11 @@ export async function POST(request: Request) {
       const orderItems = items.map((item: any) => ({
         order_id: orderData.id,
         menu_item_id: item.id,
-        
-        // DB 컬럼명 'item_name'에 맞춤
-        item_name: item.posName || item.name || 'Unknown Item', 
-        
+        // ✨ [수정] 사용자 요청대로 Admin 이름(name)을 최우선으로 저장하도록 변경
+        item_name: item.name || item.posName || 'Unknown Item', 
         price: item.price, 
         quantity: item.quantity,
         modifiers: item.selectedModifiers || [],
-        
-        // ✨ [추가] 아이템별 메모(Note) DB에 저장
         notes: item.notes || null 
       }));
 
