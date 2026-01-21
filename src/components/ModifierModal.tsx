@@ -67,22 +67,20 @@ export default function ModifierModal({ item, modifiersObj, onClose, onConfirm }
       className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
       onClick={onClose}
     >
-      {/* ✨ 모달 너비 w-[85%]로 조금 더 넓게 */}
+      {/* 모달 크기 */}
       <div 
         onClick={(e) => e.stopPropagation()}
-        className="bg-gray-900 rounded-3xl w-[85%] h-auto max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-gray-700"
+        className="bg-gray-900 rounded-3xl w-[90%] h-auto max-h-[95vh] flex flex-col shadow-2xl overflow-hidden border border-gray-700"
       >
 
         {/* 헤더 */}
         <div className="p-6 border-b border-gray-700 bg-gray-800 flex justify-between items-center shrink-0">
           <div className="flex-1 pr-4">
-            {/* ✨ 아이템 이름 text-3xl */}
             <h2 className="text-3xl font-black text-white leading-tight">{item.name}</h2>
             <p className="text-gray-400 text-lg mt-1 font-medium">Select options</p>
           </div>
           
           <div className="flex items-center gap-5">
-            {/* ✨ 가격 text-3xl */}
             <span className="text-3xl text-blue-400 font-black">${currentTotal.toFixed(2)}</span>
             
             <button 
@@ -112,39 +110,44 @@ export default function ModifierModal({ item, modifiersObj, onClose, onConfirm }
 
             return (
               <div key={`${groupName}-${idx}`}>
-                {/* ✨ 그룹 제목 text-2xl */}
+                {/* 그룹 제목 */}
                 <h3 className="text-2xl font-bold mb-5 text-gray-200 border-l-4 border-blue-500 pl-4 uppercase tracking-wide">
                   {groupName}
                 </h3>
                 
-                <div className="grid grid-cols-3 gap-5">
+                {/* ✨ [수정] Grid를 4열(기본) ~ 5열(대화면)로 변경 */}
+                <div className="grid grid-cols-4 xl:grid-cols-5 gap-4">
                   {sortedOptions.map((option, optIdx) => {
                     const isSelected = selectedOptions.some(o => o.name === option.name);
                     return (
                       <div
                         key={`${option.name}-${optIdx}`}
                         onClick={() => toggleOption(option, groupName)}
-                        // ✨ 패딩 p-5 (확대)
-                        className={`flex items-center p-5 border rounded-2xl cursor-pointer transition-all active:scale-95
+                        // ✨ [수정] 버튼 스타일 변경: 
+                        // flex-col (세로 정렬), h-44 (높이 고정 약 176px), text-center (중앙 정렬)
+                        className={`flex flex-col items-center justify-center text-center p-3 border rounded-2xl cursor-pointer transition-all active:scale-95 h-44 relative overflow-hidden
                           ${isSelected
-                            ? 'bg-blue-900/40 border-blue-500 ring-1 ring-blue-500'
+                            ? 'bg-blue-900/40 border-blue-500 ring-2 ring-blue-500 shadow-lg shadow-blue-900/20'
                             : 'bg-gray-800 border-gray-700 hover:bg-gray-750 hover:border-gray-500'
                           }`}
                       >
-                        {/* ✨ 체크박스 크기 w-7 h-7 (확대) */}
-                        <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center mr-4 shrink-0
+                        {/* ✨ [수정] 체크박스를 위쪽으로 배치하고 마진 조정 */}
+                        <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center mb-3 shrink-0 transition-colors
                           ${isSelected ? 'bg-blue-500 border-blue-500' : 'bg-transparent border-gray-500'}`}
                         >
-                          {isSelected && <div className="w-3 h-3 bg-white rounded-full" />}
+                          {isSelected && <div className="w-3.5 h-3.5 bg-white rounded-full" />}
                         </div>
                         
-                        <div className="flex flex-col">
-                          {/* ✨ 옵션 이름 text-xl (확대) */}
-                          <span className={`text-xl font-bold leading-tight ${isSelected ? 'text-white' : 'text-gray-300'}`}>
+                        <div className="flex flex-col items-center w-full px-1">
+                          {/* ✨ [수정] 폰트 크기 확대 (text-2xl), 굵게 (font-black), 줄간격 좁힘 */}
+                          <span className={`text-2xl font-black leading-tight break-words w-full ${isSelected ? 'text-white' : 'text-gray-300'}`}>
                             {option.name}
                           </span>
+                          
                           {option.price > 0 && (
-                            <span className="text-lg text-blue-400 font-bold mt-1">+${option.price.toFixed(2)}</span>
+                            <span className="text-xl text-blue-400 font-bold mt-2 bg-gray-900/50 px-2 py-0.5 rounded-md">
+                              +${option.price.toFixed(2)}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -160,17 +163,15 @@ export default function ModifierModal({ item, modifiersObj, onClose, onConfirm }
         <div className="p-6 border-t border-gray-700 bg-gray-800 flex gap-5 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.3)]">
           <button
             onClick={onClose}
-            // ✨ 높이 h-20 (확대), 폰트 text-2xl
-            className="flex-1 bg-gray-700 text-gray-300 text-2xl font-bold rounded-2xl h-20 hover:bg-gray-600 transition-colors border border-gray-600"
+            className="flex-1 bg-gray-700 text-gray-300 text-2xl font-bold rounded-2xl h-24 hover:bg-gray-600 transition-colors border border-gray-600"
           >
             Cancel
           </button>
           <button
             onClick={handleAddToCart}
-            // ✨ 높이 h-20 (확대), 폰트 text-2xl
-            className="flex-[2] bg-blue-600 text-white text-2xl font-bold rounded-2xl h-20 hover:bg-blue-500 shadow-lg shadow-blue-900/50 transition-colors flex items-center justify-center gap-3"
+            className="flex-[2] bg-blue-600 text-white text-3xl font-black rounded-2xl h-24 hover:bg-blue-500 shadow-lg shadow-blue-900/50 transition-colors flex items-center justify-center gap-3"
           >
-            Add to Order <span className="text-blue-200 text-xl font-semibold">| ${currentTotal.toFixed(2)}</span>
+            Add to Order <span className="text-blue-200 text-2xl font-semibold opacity-80">| ${currentTotal.toFixed(2)}</span>
           </button>
         </div>
 
