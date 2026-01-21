@@ -79,6 +79,24 @@ export default function PosPage() {
     loadData();
   }, []);
 
+  // ✨ [추가] 안드로이드 뒤로 가기 버튼 막기 (History Lock)
+  useEffect(() => {
+    // 1. 현재 페이지를 히스토리에 강제로 한 번 더 밀어넣음
+    history.pushState(null, '', location.href);
+
+    // 2. 뒤로 가기 이벤트(popstate)가 감지되면 다시 현재 페이지를 밀어넣음
+    const handlePopState = () => {
+      history.pushState(null, '', location.href);
+      // 필요하다면 여기에 "뒤로 가실 수 없습니다" 같은 경고창을 띄울 수도 있음
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+  
   // --- Cart & Logic ---
   const addToCart = (item: MenuItem, modifiers: ModifierOption[] = []) => {
      const optionsPrice = modifiers.reduce((acc, opt) => acc + opt.price, 0);
