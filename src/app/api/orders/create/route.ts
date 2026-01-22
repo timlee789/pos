@@ -20,7 +20,9 @@ export async function POST(request: Request) {
       tableNum,
       employeeName,
       // ✨ [추가] 프론트엔드에서 보낸 주문 상태 (없으면 undefined)
-      status 
+      status,
+      // ✨ [추가] 트랜잭션 ID 받기
+      transactionId 
     } = body;
 
     console.log(`📝 DB 저장 시작... (Type: ${orderType}, Status: ${status || 'paid'})`);
@@ -40,7 +42,8 @@ export async function POST(request: Request) {
         tax: tax,
         tip: tip,
         payment_method: paymentMethod,
-        employee_name: employeeName 
+        employee_name: employeeName,
+        transaction_id: transactionId 
       })
       .select()
       .single();

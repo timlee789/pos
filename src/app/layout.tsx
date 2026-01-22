@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Nunito } from "next/font/google";
 // [수정] 파일 위치에 맞게 경로 변경 (./globals.css -> ../styles/globals.css)
 import "../styles/globals.css";
-import TestPrinter from "@/components/TestPrinter";
+import TestPrinter from "@/components/shared/TestPrinter";
 
 const nunito = Nunito({
   subsets: ["latin"],

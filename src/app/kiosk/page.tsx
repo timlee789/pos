@@ -1,20 +1,21 @@
-// src/app/kiosk/page.tsx
+// src/app/page.tsx
+// [변경] csvParser 대신 dataFetcher를 import 합니다.
 import { getKioskData } from '@/lib/dataFetcher';
-import KioskClient from '@/components/kiosk/KioskClient';
+import KioskMain from '@/components/kiosk/KioskMain';
 
-// 매번 최신 데이터를 가져오도록 설정 (품절/가격 변경 즉시 반영)
+// Next.js 페이지 캐싱 설정 (0으로 설정하면 매번 최신 데이터를 가져옴)
+// 상용 배포 시에는 60초 등으로 늘려서 DB 부하를 줄일 수 있습니다.
 export const revalidate = 0;
 
 export default async function Page() {
-  // 서버에서 데이터 미리 가져오기 (Loading 없음!)
   const { categories, items, modifiersObj } = await getKioskData();
 
   return (
-    <main className="h-screen w-screen overflow-hidden bg-black">
-      <KioskClient
-        initialCategories={categories}
-        initialItems={items}
-        initialModifiers={modifiersObj}
+    <main className="h-screen w-screen overflow-hidden bg-gray-50">
+      <KioskMain
+        categories={categories}
+        items={items}
+        modifiersObj={modifiersObj}
       />
     </main>
   );

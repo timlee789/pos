@@ -1,236 +1,171 @@
 'use client';
 
-import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { CartItem } from '@/lib/types';
+// ✨ [중요] React에서 RefObject를 import 해야 합니다.
+import { RefObject } from 'react';
 
-interface KioskCartDrawerProps {
-  cart: CartItem[];
-  // ✨ [중요] 부모(KioskClient)와 타입 일치시킴: (id: string) => void
-  onRemoveItem: (uniqueId: string) => void;
-  subtotal: number;
-  orderType: 'dine_in' | 'to_go' | null;
-  tableNum: string | null;
-  onPaymentComplete: () => void;
-  printerServerUrl: string;
+// ExtendedCartItem 타입 정의 (또는 types.ts에서 가져오기)
+interface ExtendedCartItem extends CartItem {
+    uniqueCartId: string;
+    groupId?: string;
 }
 
-export default function KioskCartDrawer({
-  cart,
-  onRemoveItem,
-  subtotal,
-  orderType,
-  tableNum,
-  onPaymentComplete,
-  printerServerUrl
+interface KioskCartDrawerProps {
+  isOpen: boolean;
+  onClose: () => void;
+  cart: ExtendedCartItem[];
+  onRemove: (id: string) => void;
+  // ✨ [해결] 여기서 cartEndRef 타입을 정확히 정의해야 에러가 사라집니다.
+  cartEndRef: RefObject<HTMLDivElement | null>; 
+  totals: { subtotal: number; tax: number; cardFee: number; grandTotal: number };
+  onPayNow: () => void;
+  onClear: () => void;
+}
+
+export default function KioskCartDrawer({ 
+  isOpen, onClose, cart, onRemove, cartEndRef, totals, onPayNow, onClear 
 }: KioskCartDrawerProps) {
   
-  const [isOpen, setIsOpen] = useState(false); // 드로어 열림/닫힘 상태
-  const [isProcessing, setIsProcessing] = useState(false); // 결제 진행 중 상태
-  const [statusMessage, setStatusMessage] = useState(''); // 결제 상태 메시지
-
-  const totalAmount = subtotal; // 키오스크는 팁/세금 일단 제외 (필요시 추가)
-
-  // 결제 핸들러
-  const handlePayment = async () => {
-    if (cart.length === 0) return;
-    setIsProcessing(true);
-    setStatusMessage("Connecting to Card Reader...");
-
-    try {
-      // 1. Stripe 결제 의도 생성 (API 호출)
-      const processRes = await fetch('/api/stripe/process', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: totalAmount }),
-      });
-      const processData = await processRes.json();
-      
-      if (!processData.success) throw new Error(processData.error || "Payment Init Failed");
-
-      const { paymentIntentId } = processData;
-      setStatusMessage("💳 Please Insert or Tap Card");
-
-      // 2. 결제 완료 대기 (Polling)
-      let isSuccess = false;
-      for (let i = 0; i < 60; i++) { // 약 60초 대기
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const checkRes = await fetch('/api/stripe/capture', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paymentIntentId }),
-        });
-        const checkData = await checkRes.json();
-
-        if (checkData.status === 'succeeded') {
-          isSuccess = true;
-          break;
-        } else if (checkData.status === 'failed') {
-          throw new Error("Card Declined or Cancelled");
-        }
-      }
-
-      if (!isSuccess) throw new Error("Payment Timeout");
-
-      // 3. 결제 성공 후 주문 저장 (DB)
-      setStatusMessage("Payment Successful! Saving Order...");
-      
-      const displayTableNum = orderType === 'to_go' ? 'To Go' : (tableNum || 'Dine In');
-
-      const saveRes = await fetch('/api/orders/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: cart,
-          subtotal: subtotal,
-          tax: 0,
-          tip: 0,
-          total: totalAmount,
-          paymentMethod: 'CARD', // 키오스크는 무조건 카드
-          orderType: orderType || 'dine_in',
-          tableNum: displayTableNum,
-          employeeName: 'Kiosk',
-          status: 'paid'
-        })
-      });
-
-      const orderResult = await saveRes.json();
-      if (!orderResult.success) throw new Error("Order Save Failed");
-
-      // 4. 주방 프린터 전송
-      try {
-        await fetch(printerServerUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            items: cart,
-            orderNumber: orderResult.orderNumber,
-            tableNumber: displayTableNum,
-            orderType: orderType || 'dine_in',
-            date: new Date().toLocaleString(),
-            subtotal: subtotal,
-            tax: 0,
-            tipAmount: 0,
-            totalAmount: totalAmount,
-            paymentMethod: "CARD (Kiosk)",
-            employeeName: "Kiosk"
-          })
-        });
-      } catch (e) {
-        console.error("Print Error:", e);
-        // 프린터 에러는 사용자에게 치명적이지 않으므로 넘어감
-      }
-
-      setStatusMessage("✅ Order Complete! Please take your receipt.");
-      await new Promise(r => setTimeout(r, 2000));
-      
-      // 5. 완료 처리 (장바구니 비우기 등)
-      setIsOpen(false);
-      onPaymentComplete();
-
-    } catch (error: any) {
-      console.error(error);
-      setStatusMessage("❌ Error: " + error.message);
-      await new Promise(r => setTimeout(r, 3000));
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // 장바구니에 아이템이 없으면 숨김
-  if (cart.length === 0 && !isOpen) return null;
-
   return (
-    <>
-      {/* 1. 하단 고정 바 (요약 정보) */}
-      {!isOpen && cart.length > 0 && (
-        <div 
-          onClick={() => setIsOpen(true)}
-          className="fixed bottom-0 left-0 w-full bg-red-600 text-white p-6 rounded-t-3xl shadow-2xl z-40 cursor-pointer animate-bounce-slight flex justify-between items-center"
-        >
-          <div className="flex items-center gap-4">
-            <div className="bg-white text-red-600 font-black w-10 h-10 rounded-full flex items-center justify-center text-xl">
-              {cart.reduce((acc, item) => acc + item.quantity, 0)}
-            </div>
-            <span className="text-2xl font-bold">View Order</span>
-          </div>
-          <span className="text-3xl font-black">${totalAmount.toFixed(2)}</span>
-        </div>
-      )}
-
-      {/* 2. 전체 화면 드로어 (상세 내역 & 결제) */}
+    <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col justify-end">
-          {/* 닫기 영역 (배경 클릭 시 닫기) */}
-          <div className="flex-1" onClick={() => !isProcessing && setIsOpen(false)} />
-
-          <div className="bg-gray-900 w-full rounded-t-3xl shadow-2xl border-t border-gray-700 max-h-[90vh] flex flex-col">
-            
+        <>
+          {/* 1. 배경 (Backdrop) */}
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/60 z-50 backdrop-blur-sm"
+          />
+          
+          {/* 2. 슬라이드 패널 (Drawer) */}
+          <motion.div
+            initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            className="fixed bottom-0 left-0 w-full h-[85%] md:h-[75%] bg-white z-[60] shadow-2xl flex flex-col rounded-t-[2.5rem]"
+            onClick={(e) => e.stopPropagation()} 
+          >
             {/* 헤더 */}
-            <div className="p-6 border-b border-gray-800 flex justify-between items-center bg-gray-800 rounded-t-3xl">
-              <h2 className="text-3xl font-black text-white">Your Order</h2>
+            <div className="p-6 md:p-8 bg-gray-900 text-white shadow-md flex justify-between items-center shrink-0 rounded-t-[2.5rem]">
+              <div>
+                <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight">Your Order</h2>
+                <p className="text-gray-400 text-lg md:text-xl mt-1 font-medium">{cart.length} items</p>
+              </div>
               <button 
-                onClick={() => setIsOpen(false)}
-                disabled={isProcessing}
-                className="text-gray-400 hover:text-white p-2"
+                onClick={onClose} 
+                className="bg-gray-800 p-4 rounded-full hover:bg-gray-700 transition-colors shadow-lg active:scale-95"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-8 h-8 md:w-10 md:h-10 text-white">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {/* 주문 목록 스크롤 */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {cart.map((item) => (
-                <div key={item.uniqueCartId} className="flex justify-between items-center bg-gray-800 p-4 rounded-2xl border border-gray-700">
-                  <div className="flex-1">
-                    <h3 className="text-xl font-bold text-white">{item.name}</h3>
-                    {item.selectedModifiers.map((mod, idx) => (
-                      <p key={idx} className="text-gray-400 text-sm">+ {mod.name}</p>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-xl font-bold text-blue-400">${item.totalPrice.toFixed(2)}</span>
-                    <button 
-                      onClick={() => onRemoveItem(item.uniqueCartId)}
-                      disabled={isProcessing}
-                      className="bg-red-900/50 text-red-500 p-2 rounded-lg border border-red-900 hover:bg-red-600 hover:text-white transition-colors"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* 결제 버튼 영역 */}
-            <div className="p-6 bg-gray-800 border-t border-gray-700">
-              <div className="flex justify-between items-end mb-4">
-                <span className="text-gray-400 text-xl font-medium">Total Amount</span>
-                <span className="text-5xl font-black text-white tracking-tighter">${totalAmount.toFixed(2)}</span>
-              </div>
-
-              {isProcessing ? (
-                <div className="w-full bg-blue-900/50 text-white text-2xl font-bold py-6 rounded-2xl flex flex-col items-center justify-center gap-2 animate-pulse border border-blue-500">
-                  <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin mb-2"></div>
-                  {statusMessage}
+            {/* 장바구니 리스트 */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-gray-50">
+              {cart.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
+                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-24 h-24 opacity-20">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                   </svg>
+                  <p className="text-2xl font-bold">Cart is empty.</p>
+                  <button onClick={onClose} className="text-blue-500 font-bold text-lg mt-2">Go back to Menu</button>
                 </div>
               ) : (
-                <button
-                  onClick={handlePayment}
-                  className="w-full bg-green-600 hover:bg-green-500 text-white text-3xl font-black py-6 rounded-2xl shadow-lg shadow-green-900/30 active:scale-95 transition-all flex items-center justify-center gap-3"
-                >
-                  PAY NOW
-                </button>
+                <>
+                  <AnimatePresence initial={false} mode='popLayout'>
+                    {cart.map((cartItem) => (
+                      <motion.div 
+                        key={cartItem.uniqueCartId} layout 
+                        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -100 }} 
+                        className="bg-white p-5 rounded-[1.5rem] shadow-sm border border-gray-200 flex flex-row gap-4 relative z-0"
+                      >
+                          <div className="flex-1 flex flex-col justify-center">
+                            <h4 className="font-black text-2xl md:text-3xl text-gray-900 leading-tight mb-1">{cartItem.name}</h4>
+                            
+                            {cartItem.selectedModifiers.length > 0 && (
+                              <div className="my-2 text-lg md:text-xl text-gray-600 font-medium bg-gray-100/80 p-3 rounded-xl inline-block">
+                                {cartItem.selectedModifiers.map((opt, i) => (
+                                  <div key={i} className="flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full inline-block mr-1"></span>
+                                    <span>{opt.name}</span>
+                                    {opt.price > 0 && <span className="text-gray-900 font-bold ml-1">(+${opt.price.toFixed(2)})</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="mt-2 font-black text-gray-900 text-3xl tracking-tight">
+                              ${cartItem.totalPrice.toFixed(2)}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col justify-center border-l pl-5 border-gray-100">
+                            <button 
+                              onClick={() => onRemove(cartItem.uniqueCartId)} 
+                              className="w-16 h-16 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl hover:bg-red-600 hover:text-white transition-all shadow-sm active:scale-95"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                  
+                  {/* ✨ [해결] 스크롤 하단 앵커 (ref 연결) */}
+                  <div ref={cartEndRef} />
+                  
+                  <div className="text-right pt-4 pb-4">
+                    <button 
+                      onClick={onClear} 
+                      className="text-xl text-red-500 hover:text-red-700 font-bold px-4 py-2 hover:bg-red-50 rounded-xl transition-colors"
+                    >
+                      Empty Cart
+                    </button>
+                  </div>
+                </>
               )}
             </div>
 
-          </div>
-        </div>
+            {/* 하단 결제 정보 및 버튼 */}
+            {cart.length > 0 && (
+              <div className="p-6 md:p-8 border-t bg-white shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] shrink-0 pb-10">
+                <div className="space-y-3 mb-8 text-gray-500 font-bold text-xl md:text-2xl">
+                  <div className="flex justify-between">
+                    <span>Subtotal</span>
+                    <span className="text-gray-800">${totals.subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Tax (7%)</span>
+                    <span className="text-gray-800">${totals.tax.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-blue-600">
+                    <span>Card Fee (3%)</span>
+                    <span>${totals.cardFee.toFixed(2)}</span>
+                  </div>
+                </div>
+                
+                <div className="flex justify-between items-center mb-8 pt-6 border-t border-gray-100">
+                  <span className="text-4xl font-black text-gray-900">Total</span>
+                  <span className="text-6xl font-black text-red-600 tracking-tighter">${totals.grandTotal.toFixed(2)}</span>
+                </div>
+                
+                <button 
+                  className="w-full h-28 bg-green-600 text-white text-5xl font-black rounded-3xl hover:bg-green-700 shadow-xl shadow-green-900/20 active:scale-95 transition-all flex items-center justify-center gap-4"
+                  onClick={onPayNow}
+                >
+                  <span>CHECKOUT</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-12 h-12">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                  </svg>
+                </button>
+              </div>
+            )}
+          </motion.div>
+        </>
       )}
-    </>
+    </AnimatePresence>
   );
 }

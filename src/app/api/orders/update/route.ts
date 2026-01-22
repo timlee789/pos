@@ -9,7 +9,7 @@ const supabase = createClient(
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { orderId, paymentMethod, tip, total } = body;
+    const { orderId, paymentMethod, tip, total, transactionId } = body;
 
     // 기존 주문 상태를 'paid'로 변경하고 결제 정보 업데이트
     const { data, error } = await supabase
@@ -19,6 +19,8 @@ export async function POST(request: Request) {
         payment_method: paymentMethod,
         tip: tip,
         total_amount: total, // 팁 포함된 최종 금액 업데이트
+        // ✨ [추가] 업데이트 시에도 트랜잭션 ID 저장
+        transaction_id: transactionId || null,
         updated_at: new Date().toISOString()
       })
       .eq('id', orderId)

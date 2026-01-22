@@ -20,6 +20,7 @@ const ADMIN_CONFIG = {
   enableToGoTableNum: true, 
 };
 
+// 프린터 서버 IP (Kiosk PC의 IP)
 const PRINTER_SERVER_URL = 'http://192.168.50.106:4000/print';
 
 interface TransactionState {
@@ -44,9 +45,11 @@ export default function PosPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [isLoading, setIsLoading] = useState(true);
 
+  // 주문 관련 상태
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null); 
   const [isOrderListOpen, setIsOrderListOpen] = useState(false);
 
+  // 모달 상태들
   const [isOrderTypeOpen, setIsOrderTypeOpen] = useState(false);
   const [isTableNumOpen, setIsTableNumOpen] = useState(false);
   const [isTipOpen, setIsTipOpen] = useState(false);
@@ -57,6 +60,7 @@ export default function PosPage() {
   const [editingNoteItem, setEditingNoteItem] = useState<CartItem | null>(null);
   const [isPhoneOrderModalOpen, setIsPhoneOrderModalOpen] = useState(false);
 
+  // 카드 결제 상태
   const [isCardProcessing, setIsCardProcessing] = useState(false);
   const [cardStatusMessage, setCardStatusMessage] = useState('');
 
@@ -64,6 +68,7 @@ export default function PosPage() {
     method: null, orderType: null, tableNum: null, tipAmount: 0,
   });
 
+  // 뒤로가기 방지
   useEffect(() => {
     history.pushState(null, '', location.href);
     const handlePopState = () => history.pushState(null, '', location.href);
@@ -71,6 +76,7 @@ export default function PosPage() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // 데이터 로드
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -86,6 +92,7 @@ export default function PosPage() {
     loadData();
   }, []);
 
+  // 카트 로직
   const addToCart = (item: MenuItem, modifiers: ModifierOption[] = []) => {
      const optionsPrice = modifiers.reduce((acc, opt) => acc + opt.price, 0);
      const isSpecialSet = item.category === 'Special';
@@ -149,6 +156,7 @@ export default function PosPage() {
     }
   };
 
+  // 전화 주문 로직
   const handlePhoneOrderClick = () => {
     if (cart.length === 0) return alert('⚠️ Cart is empty.');
     setIsPhoneOrderModalOpen(true);
@@ -204,6 +212,7 @@ export default function PosPage() {
     } catch (error: any) { alert("Error: " + error.message); }
   };
 
+  // Recall 로직
   const handleRecallOrder = (order: any) => {
     const recreatedCart: CartItem[] = order.order_items.map((dbItem: any, idx: number) => ({
         id: dbItem.menu_item_id,
@@ -236,6 +245,35 @@ export default function PosPage() {
     setIsOrderListOpen(false);
   };
 
+  // 환불 로직 (Step 4 추가됨)
+  const handleRefundOrder = async (order: any) => {
+    if (!confirm(`⚠️ REFUND WARNING ⚠️\n\nRefund Order #${order.order_number}?\nAmount: $${order.total_amount.toFixed(2)}`)) return;
+    
+    try {
+        const res = await fetch('/api/stripe/refund', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                orderId: order.id,
+                paymentIntentId: order.transaction_id,
+                amount: order.total_amount
+            })
+        });
+
+        const result = await res.json();
+        if (result.success) {
+            alert("✅ Refund Successful!");
+            setIsOrderListOpen(false); 
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (e: any) {
+        console.error(e);
+        alert("❌ Refund Failed: " + e.message);
+    }
+  };
+
+  // 결제 진행 핸들러
   const handlePaymentStart = (method: 'CASH' | 'CARD') => {
     if (cart.length === 0) return alert('Cart is empty.');
     if (currentOrderId && txn.tableNum) {
@@ -270,12 +308,12 @@ export default function PosPage() {
     else handleCardPayment(amt);
   };
 
-  // ✨ [수정] 결제 완료 및 DB 저장 (수수료 로직 포함)
-  const finalizeTransaction = async (paymentMethod: 'CASH' | 'CARD') => {
+  // ✨ [수정됨] 결제 완료 및 DB 저장 (수수료 로직 + transactionId 처리)
+  const finalizeTransaction = async (paymentMethod: 'CASH' | 'CARD', transactionId: string | null = null) => {
     try {
         const subtotalVal = getSubtotal();
         
-        // ✨ [추가] 카드일 경우 3% 수수료 계산
+        // 카드일 경우 3% 수수료
         const creditCardFee = paymentMethod === 'CARD' ? subtotalVal * 0.03 : 0;
         
         // 최종 금액 = 소계 + 수수료 + 팁
@@ -289,6 +327,7 @@ export default function PosPage() {
         let newOrderNumber = '';
 
         if (currentOrderId) {
+            // Update Existing Order
             console.log(`Updating existing order ${currentOrderId}...`);
             const updateRes = await fetch('/api/orders/update', {
                 method: 'POST',
@@ -296,8 +335,8 @@ export default function PosPage() {
                 body: JSON.stringify({
                     orderId: currentOrderId,
                     paymentMethod: paymentMethod,
+                    transactionId: transactionId, // ✨ 쉼표 추가됨!
                     tip: txn.tipAmount,
-                    // ✨ 수수료 포함된 총액 전송
                     total: finalTotal 
                 })
             });
@@ -306,17 +345,18 @@ export default function PosPage() {
             newOrderNumber = updateResult.order.order_number; 
 
         } else {
+            // Create New Order
             const saveRes = await fetch('/api/orders/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     items: cart,
                     subtotal: subtotalVal,
-                    // ✨ 3% 수수료를 'tax' 필드에 저장 (편의상)
                     tax: creditCardFee, 
                     tip: txn.tipAmount,
                     total: finalTotal,
                     paymentMethod: paymentMethod,
+                    transactionId: transactionId, // ✨ 쉼표 추가됨!
                     orderType: txn.orderType,
                     tableNum: displayTableNum,
                     employeeName: currentEmployee?.name || 'Unknown',
@@ -339,7 +379,6 @@ export default function PosPage() {
                     orderType: txn.orderType,
                     date: new Date().toLocaleString(),
                     subtotal: subtotalVal,
-                    // ✨ 영수증에 수수료 표시
                     tax: creditCardFee, 
                     tipAmount: txn.tipAmount,
                     totalAmount: finalTotal,
@@ -374,12 +413,11 @@ export default function PosPage() {
       finalizeTransaction('CASH');
   };
 
-  // ✨ [수정] 카드 결제 시 3% 수수료 포함 청구
+  // 카드 결제 로직
   const handleCardPayment = async (currentTip: number) => {
       setIsCardProcessing(true);
       
       const subtotal = getSubtotal();
-      // ✨ 3% 수수료 추가
       const ccFee = subtotal * 0.03;
       const totalToPay = subtotal + ccFee + currentTip;
 
@@ -412,7 +450,7 @@ export default function PosPage() {
         }
         if (isSuccess) {
             setCardStatusMessage("Processing Order...");
-            await finalizeTransaction('CARD');
+            await finalizeTransaction('CARD', paymentIntentId);
         } else { throw new Error("Payment Timeout"); }
       } catch (error: any) {
           console.error(error);
@@ -479,7 +517,7 @@ export default function PosPage() {
       
       {isPhoneOrderModalOpen && <CustomerNameModal onClose={() => setIsPhoneOrderModalOpen(false)} onConfirm={handlePhoneOrderConfirm} />}
       
-      {isOrderListOpen && <OrderListModal onClose={() => setIsOrderListOpen(false)} onRecallOrder={handleRecallOrder} />}
+      {isOrderListOpen && <OrderListModal onClose={() => setIsOrderListOpen(false)} onRecallOrder={handleRecallOrder} onRefundOrder={handleRefundOrder} />}
 
       <CashPaymentModal isOpen={isCashModalOpen} onClose={resetFlow} totalAmount={getSubtotal() + txn.tipAmount} onConfirm={handleCashPaymentConfirm} />
 
