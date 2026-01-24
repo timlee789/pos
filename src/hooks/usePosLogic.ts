@@ -79,10 +79,11 @@ export function usePosLogic() {
 
   const getSubtotal = () => cart.reduce((sum, item) => sum + (item.totalPrice * item.quantity), 0);
 
+  // ✨ [수정됨] addToCart 로직 강화 (Special 메뉴 번들링)
   const addToCart = (item: MenuItem, modifiers: ModifierOption[] = []) => {
      const optionsPrice = modifiers.reduce((acc, opt) => acc + opt.price, 0);
-     const isSpecialSet = item.category === 'Special';
-     const currentGroupId = isSpecialSet ? `group-${Date.now()}-${Math.random()}` : undefined;
+     const isSpecialCategory = item.category === 'Special';
+     const currentGroupId = isSpecialCategory ? `group-${Date.now()}-${Math.random()}` : undefined;
 
      const mainCartItem: CartItem = { 
        ...item, 
@@ -95,15 +96,49 @@ export function usePosLogic() {
      };
 
      let newItems = [mainCartItem];
-     if (isSpecialSet) {
-       const desc = item.description?.toLowerCase() || '';
-       if (desc.includes('fries') || desc.includes('ff')) {
-          const friesItem = menuItems.find(i => i.name === '1/2 FF' || i.name === 'French Fries');
-          if (friesItem) newItems.push({ ...friesItem, selectedModifiers: [], totalPrice: 0, quantity: 1, uniqueCartId: Date.now().toString() + Math.random(), name: `(Set) ${friesItem.name}`, groupId: currentGroupId } as any);
+
+     // ✨ Special 카테고리일 때 자동 추가 로직 (이름 + 설명 모두 체크)
+     if (isSpecialCategory) {
+       const lowerName = item.name.toLowerCase();
+       const lowerDesc = (item.description || '').toLowerCase();
+       
+       // 1. 감자튀김 추가 조건 (설명에 fries/ff 있거나, 이름이 Friday Special인 경우 등)
+       // 금요일 스페셜은 보통 햄버거 세트이므로 감자튀김 포함
+       if (lowerDesc.includes('fries') || lowerDesc.includes('ff') || lowerName.includes('friday special')) {
+          // 정확한 아이템 찾기 (이름 유연하게 검색)
+          const friesItem = menuItems.find(i => {
+              const n = i.name.toLowerCase();
+              return n === '1/2 ff' || n === 'french fries' || n.includes('1/2 french');
+          });
+
+          if (friesItem) {
+              newItems.push({ 
+                  ...friesItem, 
+                  selectedModifiers: [], 
+                  totalPrice: 0, 
+                  quantity: 1, 
+                  uniqueCartId: Date.now().toString() + Math.random() + '1', 
+                  name: `(Set) ${friesItem.name}`, 
+                  groupId: currentGroupId 
+              } as any);
+          }
        }
-       if (desc.includes('drink')) {
-          const drinkItem = menuItems.find(i => i.name === 'Soft Drink');
-          if (drinkItem) newItems.push({ ...drinkItem, selectedModifiers: [], totalPrice: 0, quantity: 1, uniqueCartId: Date.now().toString() + Math.random(), name: `(Set) ${drinkItem.name}`, groupId: currentGroupId } as any);
+
+       // 2. 음료 추가 조건 (설명에 drink 있거나, 이름이 Friday Special인 경우)
+       if (lowerDesc.includes('drink') || lowerDesc.includes('w/d') || lowerName.includes('friday special')) {
+          const drinkItem = menuItems.find(i => i.name === 'Soft Drink' || i.name.toLowerCase() === 'soft drink');
+          
+          if (drinkItem) {
+              newItems.push({ 
+                  ...drinkItem, 
+                  selectedModifiers: [], 
+                  totalPrice: 0, 
+                  quantity: 1, 
+                  uniqueCartId: Date.now().toString() + Math.random() + '2', 
+                  name: `(Set) ${drinkItem.name}`, 
+                  groupId: currentGroupId 
+              } as any);
+          }
        }
      }
      setCart((prev) => [...prev, ...newItems]);
