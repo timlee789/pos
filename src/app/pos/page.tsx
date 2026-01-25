@@ -24,7 +24,11 @@ export default function PosPage() {
     isOrderListOpen, setIsOrderListOpen, txn,
     isOrderTypeOpen, isTableNumOpen, isTipOpen, isCashModalOpen,
     isPhoneOrderModalOpen, setIsPhoneOrderModalOpen,
-    selectedItemForMod, setSelectedItemForMod, editingNoteItem, setEditingNoteItem,
+    
+    // ✨ [수정 1] setSelectedItemForMod 제거 -> closeModifierModal 사용
+    selectedItemForMod, closeModifierModal, 
+    
+    editingNoteItem, setEditingNoteItem,
     showDayWarning, setShowDayWarning, warningTargetDay,
     isCardProcessing, cardStatusMessage,
     
@@ -78,7 +82,23 @@ export default function PosPage() {
       {/* 4. Modals */}
       {showDayWarning && <DayWarningModal targetDay={warningTargetDay} onClose={() => setShowDayWarning(false)} />}
       
-      {selectedItemForMod && <ModifierModal item={selectedItemForMod} modifiersObj={modifiersObj} onClose={() => setSelectedItemForMod(null)} onConfirm={addToCart} />}
+      {/* ✨ [수정 2] ModifierModal 핸들러 수정 */}
+      {selectedItemForMod && (
+  <ModifierModal 
+    item={selectedItemForMod} 
+    modifiersObj={modifiersObj} 
+    onClose={closeModifierModal} 
+    
+    // ✨✨ [여기가 핵심입니다] ✨✨
+    // 모달에서 (item, options) 두 개를 보내줍니다.
+    // 우리는 addToCart(item, options) 순서로 그대로 전달해야 합니다.
+    onConfirm={(item, options) => {
+       console.log("Modal Confirm:", item.name, options); // 데이터 확인용 로그
+       addToCart(item, options);
+       closeModifierModal(); 
+    }}
+        />
+      )}
       
       {editingNoteItem && <SpecialRequestModal initialNote={editingNoteItem.notes || ""} onClose={() => setEditingNoteItem(null)} onConfirm={handleSaveNote} />}
       
@@ -91,7 +111,6 @@ export default function PosPage() {
           subtotal={getSubtotal()} 
           onSelectTip={handleTipSelect} 
           onCancel={() => { 
-             // 팁 모달 취소 시 이전 단계로 돌아가야 함 (로직에 따라 다름, 여기선 닫기)
              resetFlow(); 
           }}
         />

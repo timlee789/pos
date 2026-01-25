@@ -16,13 +16,18 @@ export default function ModifierModal({ item, modifiersObj, onClose, onConfirm }
     const lowerItemName = item.name.toLowerCase();
     const lowerGroupName = groupName.toLowerCase();
     
+    // 밀크쉐이크 관련 로직 유지
     const isMilkshake = lowerItemName.includes('milkshake');
     const isSingleSelectGroup = isMilkshake && (lowerGroupName.includes('size') || lowerGroupName.includes('flavor'));
 
     if (isSingleSelectGroup) {
       setSelectedOptions(prev => {
-        const currentGroupOptions = modifiersObj[groupName]?.options.map(o => o.name) || [];
-        const others = prev.filter(o => !currentGroupOptions.includes(o.name));
+        // ✨ [안전장치 1] 옵션이 배열인지 확인
+        const group = modifiersObj[groupName];
+        const safeOptions = group && Array.isArray(group.options) ? group.options : [];
+        
+        const currentGroupOptionNames = safeOptions.map(o => o.name);
+        const others = prev.filter(o => !currentGroupOptionNames.includes(o.name));
         return [...others, option];
       });
     } else {
@@ -36,13 +41,15 @@ export default function ModifierModal({ item, modifiersObj, onClose, onConfirm }
   const handleAddToCart = () => {
     const itemName = item.name.toLowerCase();
 
+    // 밀크쉐이크 필수 선택 검사 로직 유지
     if (itemName.includes('milkshake')) {
       let hasSize = false;
       let hasFlavor = false;
 
       item.modifierGroups.forEach(groupName => {
         const group = modifiersObj[groupName];
-        if (!group) return;
+        // ✨ [안전장치 2] 그룹과 옵션 유효성 검사
+        if (!group || !Array.isArray(group.options)) return;
 
         const lowerGroupName = groupName.toLowerCase();
         const isSelectedInGroup = group.options.some(opt => 
@@ -61,6 +68,9 @@ export default function ModifierModal({ item, modifiersObj, onClose, onConfirm }
   };
 
   const currentTotal = item.price + selectedOptions.reduce((sum, opt) => sum + opt.price, 0);
+
+  // ✨ [안전장치 3] modifierGroups가 없으면 빈 배열 처리
+  const safeModifierGroups = Array.isArray(item.modifierGroups) ? item.modifierGroups : [];
 
   return (
     <div 
@@ -96,14 +106,19 @@ export default function ModifierModal({ item, modifiersObj, onClose, onConfirm }
 
         {/* 옵션 스크롤 영역 */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-gray-900">
-          {item.modifierGroups.length === 0 && (
+          {safeModifierGroups.length === 0 && (
             <p className="text-center text-gray-500 py-10 text-2xl">No options available.</p>
           )}
 
-          {item.modifierGroups.map((groupName, idx) => {
+          {safeModifierGroups.map((groupName, idx) => {
             const group = modifiersObj[groupName];
-            if (!group || !group.options || group.options.length === 0) return null;
+            
+            // ✨✨ [핵심 수정] 그룹이 없거나, options가 배열이 아니면 렌더링하지 않음 (에러 방지)
+            if (!group || !Array.isArray(group.options) || group.options.length === 0) {
+                return null;
+            }
 
+            // sort 할 때도 원본 배열을 복사([...])해서 안전하게 처리
             const sortedOptions = [...group.options].sort((a: any, b: any) => {
               return (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0);
             });
@@ -115,7 +130,7 @@ export default function ModifierModal({ item, modifiersObj, onClose, onConfirm }
                   {groupName}
                 </h3>
                 
-                {/* ✨ [수정] Grid를 4열(기본) ~ 5열(대화면)로 변경 */}
+                {/* Grid Layout */}
                 <div className="grid grid-cols-4 xl:grid-cols-5 gap-4">
                   {sortedOptions.map((option, optIdx) => {
                     const isSelected = selectedOptions.some(o => o.name === option.name);
@@ -123,15 +138,13 @@ export default function ModifierModal({ item, modifiersObj, onClose, onConfirm }
                       <div
                         key={`${option.name}-${optIdx}`}
                         onClick={() => toggleOption(option, groupName)}
-                        // ✨ [수정] 버튼 스타일 변경: 
-                        // flex-col (세로 정렬), h-44 (높이 고정 약 176px), text-center (중앙 정렬)
                         className={`flex flex-col items-center justify-center text-center p-3 border rounded-2xl cursor-pointer transition-all active:scale-95 h-44 relative overflow-hidden
                           ${isSelected
                             ? 'bg-blue-900/40 border-blue-500 ring-2 ring-blue-500 shadow-lg shadow-blue-900/20'
                             : 'bg-gray-800 border-gray-700 hover:bg-gray-750 hover:border-gray-500'
                           }`}
                       >
-                        {/* ✨ [수정] 체크박스를 위쪽으로 배치하고 마진 조정 */}
+                        {/* 체크박스 UI */}
                         <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center mb-3 shrink-0 transition-colors
                           ${isSelected ? 'bg-blue-500 border-blue-500' : 'bg-transparent border-gray-500'}`}
                         >
@@ -139,7 +152,6 @@ export default function ModifierModal({ item, modifiersObj, onClose, onConfirm }
                         </div>
                         
                         <div className="flex flex-col items-center w-full px-1">
-                          {/* ✨ [수정] 폰트 크기 확대 (text-2xl), 굵게 (font-black), 줄간격 좁힘 */}
                           <span className={`text-2xl font-black leading-tight break-words w-full ${isSelected ? 'text-white' : 'text-gray-300'}`}>
                             {option.name}
                           </span>

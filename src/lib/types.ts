@@ -32,6 +32,14 @@ export interface MenuItem {
   is_pos_visible?: boolean;
 }
 
+// ✨ [추가] Employee 타입 정의
+export interface Employee {
+  id: number;
+  name: string;
+  role: string;     // 'manager', 'staff' 등
+  pin?: string;     // 로그인용 PIN (선택 사항)
+}
+
 // 3. 카테고리
 export interface Category {
   id: string;

@@ -1,117 +1,115 @@
-'use client';
-
 import { CartItem } from '@/lib/types';
 
-interface PosCartProps {
+interface Props {
   cart: CartItem[];
   subtotal: number;
-  onRemoveItem: (uniqueId: string) => void;
+  onRemoveItem: (id: string) => void;
   onPaymentStart: (method: 'CASH' | 'CARD') => void;
   onEditNote: (item: CartItem) => void;
   onPhoneOrder: () => void;
 }
 
-export default function PosCart({ 
-  cart, 
-  subtotal, 
-  onRemoveItem, 
-  onPaymentStart, 
-  onEditNote,
-  onPhoneOrder
-}: PosCartProps) {
-
+export default function PosCart({ cart, subtotal, onRemoveItem, onPaymentStart, onEditNote, onPhoneOrder }: Props) {
+  
   return (
-    <div className="h-full flex flex-col bg-gray-900 border-r border-gray-800 shadow-2xl">
-      {/* 1. 헤더 */}
-      <div className="p-4 bg-gray-800 border-b border-gray-700 flex justify-between items-center shrink-0">
-        <h2 className="text-2xl font-black text-white">Current Order</h2>
-        <span className="bg-blue-600 text-white text-lg font-bold px-4 py-1 rounded-full">
-          {cart.reduce((acc, item) => acc + item.quantity, 0)} Items
-        </span>
+    <div className="h-full flex flex-col bg-gray-900 border-r border-gray-800 text-white">
+      
+      {/* 1. 카트 헤더 (버튼 제거됨) */}
+      <div className="flex-none p-4 border-b border-gray-800 bg-gray-800 shadow-md flex justify-between items-center">
+        <h2 className="text-xl font-bold flex items-center gap-2 text-white">
+          🛒 Orders
+          <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full">{cart.length}</span>
+        </h2>
+        {/* 상단 버튼 제거됨 */}
       </div>
 
-      {/* 2. 장바구니 리스트 */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* 2. 주문 아이템 리스트 */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-3">
         {cart.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-50">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-20 h-20 mb-4">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-            </svg>
-            <p className="text-2xl font-bold">Cart is empty</p>
+            <p className="text-xl font-medium">Cart is empty</p>
           </div>
         ) : (
           cart.map((item) => (
-            <div key={item.uniqueCartId} className="bg-gray-800 rounded-2xl p-5 border border-gray-700 shadow-sm relative group">
+            <div key={item.uniqueCartId} className="bg-gray-800 rounded-xl p-4 relative hover:bg-gray-750 border border-gray-700 shadow-sm transition-colors">
+              
               <div className="flex justify-between items-start mb-2">
-                 <h3 className="text-3xl font-black text-white w-[70%] leading-tight tracking-tight">
-                    {item.name}
-                 </h3>
-                 <span className="text-3xl font-black text-white">
-                    ${item.totalPrice.toFixed(2)}
-                 </span>
+                 <div className="pr-2">
+                    <span className="text-2xl font-black text-white block leading-tight">{item.name}</span>
+                    {item.name.startsWith('(Set)') && (
+                       <span className="inline-block mt-1 text-xs text-green-400 border border-green-600 px-1.5 py-0.5 rounded font-bold">SET ITEM</span>
+                    )}
+                 </div>
+                 <span className="font-mono font-bold text-2xl text-white shrink-0">${item.totalPrice.toFixed(2)}</span>
               </div>
 
-              {item.selectedModifiers.length > 0 && (
-                <div className="text-xl text-gray-300 mt-2 pl-3 border-l-4 border-gray-600 space-y-1 font-medium">
-                   {item.selectedModifiers.map((mod, idx) => (
-                      <p key={idx}>+ {mod.name} (${mod.price.toFixed(2)})</p>
-                   ))}
-                </div>
+              {item.selectedModifiers && item.selectedModifiers.length > 0 && (
+                  <div className="mt-2 mb-3 pl-3 border-l-4 border-yellow-500 bg-black/40 py-2 rounded-r pr-3">
+                      {item.selectedModifiers.map((mod, idx) => (
+                          <div key={idx} className="flex justify-between items-center py-0.5">
+                              <span className="text-yellow-400 font-bold text-lg">- {mod.name}</span>
+                              {mod.price > 0 && (
+                                <span className="text-gray-300 text-base bg-gray-700 px-2 py-0.5 rounded ml-2">
+                                  +${mod.price.toFixed(2)}
+                                </span>
+                              )}
+                          </div>
+                      ))}
+                  </div>
               )}
 
               {item.notes && (
-                <div onClick={() => onEditNote(item)} className="mt-3 text-lg text-yellow-400 bg-yellow-900/20 px-3 py-2 rounded-lg border border-yellow-700/50 cursor-pointer hover:bg-yellow-900/40 font-semibold">
-                  📝 {item.notes}
-                </div>
+                 <div className="text-blue-300 text-base italic pl-3 border-l-4 border-blue-500 mb-3 bg-blue-900/20 py-1.5 rounded-r font-medium">
+                    📝 {item.notes}
+                 </div>
               )}
 
-              {/* ✨ [수정] 버튼 크기 대폭 확대 (h-16, text-xl) */}
-              <div className="grid grid-cols-2 gap-8 mt-4">
-                  <button 
-                    onClick={() => onEditNote(item)} 
-                    className="h-16 text-xl bg-gray-700 text-gray-200 rounded-xl hover:bg-gray-600 font-bold border-2 border-gray-600 flex items-center justify-center"
-                  >
-                    ✏️ Edit Note
-                  </button>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); onRemoveItem(item.uniqueCartId); }} 
-                    className="h-16 text-xl bg-red-900/40 text-red-400 rounded-xl border-2 border-red-900 hover:bg-red-600 hover:text-white transition-colors font-bold flex items-center justify-center"
-                  >
-                    🗑️ Remove
-                  </button>
+              <div className="flex gap-3 mt-2 pt-3 border-t border-gray-700">
+                 <button onClick={() => onEditNote(item)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-sm py-3 rounded-lg text-gray-200 font-bold transition-colors">
+                    {item.notes ? 'Edit Note' : 'Add Note'}
+                 </button>
+                 <button onClick={() => onRemoveItem(item.uniqueCartId)} className="flex-1 bg-red-900/40 hover:bg-red-800 text-red-200 text-sm py-3 rounded-lg font-bold transition-colors">
+                    Remove
+                 </button>
               </div>
             </div>
           ))
         )}
       </div>
 
-      {/* 3. 하단 버튼 영역 */}
-      <div className="p-4 bg-gray-800 border-t border-gray-700 shrink-0 shadow-[0_-5px_15px_rgba(0,0,0,0.3)] z-10">
+      {/* 3. 하단 결제 버튼 영역 (여기에 Phone Order 추가) */}
+      <div className="flex-none p-4 bg-gray-800 border-t border-gray-700 z-10 shadow-[0_-4px_10px_rgba(0,0,0,0.3)]">
+        <div className="flex justify-between items-end mb-4">
+           <span className="text-gray-400 text-base uppercase font-bold tracking-wider">Total Due</span>
+           <span className="text-5xl font-black text-green-400 tracking-tight">${subtotal.toFixed(2)}</span>
+        </div>
         
-        <div className="flex justify-between items-end mb-4 px-1">
-          <span className="text-gray-400 text-xl font-bold">Total</span>
-          <span className="text-5xl text-white font-black tracking-tight">${subtotal.toFixed(2)}</span>
-        </div>
+        <div className="flex flex-col gap-3">
+           {/* ✨✨ Phone Order 버튼 (Card/Cash 위에 배치) */}
+           <button 
+              onClick={onPhoneOrder}
+              disabled={cart.length === 0}
+              className="w-full bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold text-xl py-4 flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg active:scale-95 transition-all"
+           >
+              <span>📞</span> Phone Order
+           </button>
 
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <button
-            onClick={onPhoneOrder}
-            className="col-span-2 bg-purple-600 hover:bg-purple-500 text-white py-4 rounded-2xl text-2xl font-black shadow-lg shadow-purple-900/20 active:scale-95 transition-all flex items-center justify-center gap-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-8 h-8">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
-            </svg>
-            PHONE ORDER
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <button onClick={() => onPaymentStart('CASH')} className="bg-green-600 hover:bg-green-500 text-white py-5 rounded-2xl text-2xl font-black shadow-lg shadow-green-900/20 active:scale-95 transition-all flex flex-col items-center justify-center leading-none">
-            <span className="text-sm font-bold opacity-80 mb-1">PAY WITH</span> CASH
-          </button>
-          <button onClick={() => onPaymentStart('CARD')} className="bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-2xl text-2xl font-black shadow-lg shadow-blue-900/20 active:scale-95 transition-all flex flex-col items-center justify-center leading-none">
-            <span className="text-sm font-bold opacity-80 mb-1">PAY WITH</span> CARD
-          </button>
+           <div className="grid grid-cols-2 gap-4 h-20">
+              <button 
+                 onClick={() => onPaymentStart('CASH')}
+                 disabled={cart.length === 0}
+                 className="bg-green-600 hover:bg-green-500 text-white rounded-2xl font-black text-2xl flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg active:scale-95 transition-all"
+              >
+                 <span>💵</span> CASH
+              </button>
+              <button 
+                 onClick={() => onPaymentStart('CARD')}
+                 disabled={cart.length === 0}
+                 className="bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-2xl flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg active:scale-95 transition-all"
+              >
+                 <span>💳</span> CARD
+              </button>
+           </div>
         </div>
       </div>
     </div>
