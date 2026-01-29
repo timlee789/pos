@@ -222,7 +222,9 @@ export function usePosLogic() {
 
           // 2. Stripe 결제 프로세스
           const processRes = await fetch('/api/stripe/process', {
-             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: totalToPay }),
+             method: 'POST', 
+             headers: { 'Content-Type': 'application/json' }, 
+             body: JSON.stringify({ amount: totalToPay, source: 'pos' }),
           });
           const { success, paymentIntentId, error } = await processRes.json();
           if (!success) throw new Error(error || "Connection Failed");

@@ -164,7 +164,7 @@ export function useKioskLogic(categories: Category[], items: MenuItem[]) {
       const stripeRes = await fetch('/api/stripe/process', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ amount: finalAmountWithTip }) 
+        body: JSON.stringify({ amount: finalAmountWithTip, source: 'kiosk' }) 
       });
       const processData = await stripeRes.json();
       
