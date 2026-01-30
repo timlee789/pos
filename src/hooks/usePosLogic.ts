@@ -40,9 +40,7 @@ export function usePosLogic() {
   const [showDayWarning, setShowDayWarning] = useState(false);
   const [warningTargetDay, setWarningTargetDay] = useState('');
 
-  // -------------------------------------------------------
   // 1. 초기 데이터 로드
-  // -------------------------------------------------------
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -58,31 +56,23 @@ export function usePosLogic() {
     loadData();
   }, []);
 
-  // -------------------------------------------------------
-  // 2. 손님 화면 연동 (Cart 상태)
-  // -------------------------------------------------------
+  // 2. 손님 화면 연동
   useEffect(() => {
      if (cart.length === 0) {
         sendState('IDLE', [], 0);
      } else {
-        sendState('CART', cart, getSubtotal());
+        if (!isCardProcessing) {
+             sendState('CART', cart, getSubtotal());
+        }
      }
   }, [cart]);
 
-  // -------------------------------------------------------
-  // 3. ✨ [수정] 손님 팁 선택 이벤트 리스너
-  // -------------------------------------------------------
+  // 3. 팁 선택 이벤트
   useEffect(() => {
     const cleanup = onTipSelected((tipAmount) => {
-       // 1. 팁 금액 업데이트
        setTxn(prev => ({ ...prev, tipAmount }));
-       
-       // 2. ✨ [중요] 캐셔 화면의 Tip 모달을 강제로 닫아줍니다.
        setIsTipOpen(false);
-
-       // 3. 결제 진행
        if (txn.method === 'CASH') {
-          // 사실 Cash는 팁 단계를 건너뛰게 만들었으므로 여기로 올 일은 거의 없지만 안전장치로 둡니다.
           setIsCashModalOpen(true);
        } else {
           handleCardPayment(tipAmount);
@@ -91,9 +81,7 @@ export function usePosLogic() {
     return cleanup;
   }, [txn.method]); 
 
-  // -------------------------------------------------------
-  // 4. 아이템 클릭 및 옵션 전송
-  // -------------------------------------------------------
+  // 4. 아이템 클릭 및 옵션
   const handleItemClick = (item: MenuItem) => {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const todayIndex = new Date().getDay(); 
@@ -111,8 +99,6 @@ export function usePosLogic() {
       const groupsToShow = item.modifierGroups
         .map(groupName => modifiersObj[groupName])
         .filter(group => group !== undefined);
-      
-      // 손님 화면에 옵션 리스트 전송
       sendState('MODIFIER_SELECT', cart, getSubtotal(), item.name, groupsToShow);
     }
   };
@@ -122,76 +108,53 @@ export function usePosLogic() {
       sendState('CART', cart, getSubtotal());
   }
 
-  // -------------------------------------------------------
-  // 5. ✨ [수정] 결제 흐름 (Cash Tip 건너뛰기 적용)
-  // -------------------------------------------------------
-  
-  // (A) 결제 시작 버튼 클릭
+  // 5. 결제 시작 로직
   const handlePaymentStart = (method: 'CASH' | 'CARD') => {
     if (cart.length === 0) return alert('Cart is empty.');
     
-    // 이미 주문 정보가 있는 경우 (Recall Order)
     if (currentOrderId && txn.tableNum) {
         setTxn(prev => ({ ...prev, method }));
-        
         if (method === 'CASH') {
-            // ✨ Cash면 팁 선택 없이 바로 현금 결제창으로
             setTxn(prev => ({ ...prev, tipAmount: 0 }));
             setIsCashModalOpen(true);
         } else {
-            // Card면 팁 선택창 띄우기
             sendState('TIPPING', cart, getSubtotal());
             setIsTipOpen(true);
         }
     } else {
-        // 새 주문이면 Order Type 선택부터
         setTxn({ method, orderType: null, tableNum: null, tipAmount: 0 });
         setIsOrderTypeOpen(true);
     }
   };
 
-  // (B) Dine-in / To-go 선택
   const handleOrderTypeSelect = (type: 'dine_in' | 'to_go') => {
     setTxn((prev) => ({ ...prev, orderType: type }));
     setIsOrderTypeOpen(false);
-
-    // 테이블 번호가 필요한 경우
     if (type === 'dine_in' || ADMIN_CONFIG.enableToGoTableNum) {
         setIsTableNumOpen(true);
     } else {
-        // 테이블 번호 필요 없으면 바로 결제/팁 단계로
         setTxn((prev) => ({ ...prev, tableNum: null }));
-        
         if (txn.method === 'CASH') {
-            // ✨ Cash면 바로 현금 결제창
             setIsCashModalOpen(true);
         } else {
-            // Card면 팁 선택창
             sendState('TIPPING', cart, getSubtotal());
             setIsTipOpen(true);
         }
     }
   };
 
-  // (C) 테이블 번호 입력 완료
   const handleTableNumConfirm = (num: string) => {
     setTxn((prev) => ({ ...prev, tableNum: num }));
     setIsTableNumOpen(false);
-    
     if (txn.method === 'CASH') {
-        // ✨ Cash면 바로 현금 결제창
         setIsCashModalOpen(true);
     } else {
-        // Card면 팁 선택창
         sendState('TIPPING', cart, getSubtotal());
         setIsTipOpen(true);
     }
   };
 
-  // -------------------------------------------------------
-  // 6. 결제 처리 및 나머지 로직
-  // -------------------------------------------------------
-
+  // 6. 결제 및 인쇄 처리 (핵심)
   const handleTipSelect = (amt: number) => {
     setTxn((prev) => ({ ...prev, tipAmount: amt }));
     setIsTipOpen(false);
@@ -202,82 +165,108 @@ export function usePosLogic() {
   const handleCashPaymentConfirm = async (received: number, change: number) => {
       setIsCashModalOpen(false);
       alert(`Please return change: $${change.toFixed(2)}`);
-      await finalizeTransaction('CASH');
+      await finalizeTransaction('CASH'); 
   };
 
+  // ✨✨ [핵심 수정] 타임아웃 방지 & 인쇄 순서 확실하게 수정
   const handleCardPayment = async (tip: number) => {
-      // 1. [시작] UI 상태 변경
       setIsCardProcessing(true);
-      setCardStatusMessage("Initializing Payment...");
       
       const subtotal = getSubtotal();
       const ccFee = subtotal * 0.03;
       const totalToPay = subtotal + ccFee + tip;
 
-      // 손님 화면: 카드 투입 요청
+      // (1) 결제 전: 주방/쉐이크만 인쇄 (영수증 X)
+      setCardStatusMessage("Printing Kitchen Ticket...");
+      const displayTableNum = txn.tableNum ? (txn.orderType === 'to_go' ? `To Go #${txn.tableNum}` : txn.tableNum) : (txn.orderType === 'to_go' ? 'To Go' : '00');
+      
+      const preSaveResult = await processOrder(
+          cart, subtotal, tip, 'CARD', 
+          txn.orderType || 'dine_in', displayTableNum, currentEmployee, 
+          currentOrderId, null, 
+          'processing', 
+          'KITCHEN' // ✨ 주방 프린터만!
+      );
+
+      if (!preSaveResult.success || !preSaveResult.orderId) {
+          alert("Failed to initialize order: " + preSaveResult.error);
+          setIsCardProcessing(false);
+          return;
+      }
+
+      const activeOrderId = preSaveResult.orderId;
+      setCurrentOrderId(activeOrderId);
       sendState('PROCESSING', cart, subtotal);
 
       try {
-          setCardStatusMessage(`Connecting... ($${totalToPay.toFixed(2)})`);
+          setCardStatusMessage(`Connecting to Terminal... ($${totalToPay.toFixed(2)})`);
 
-          // 2. Stripe 결제 프로세스
+          // (2) Stripe 단말기 연결
           const processRes = await fetch('/api/stripe/process', {
-             method: 'POST', 
-             headers: { 'Content-Type': 'application/json' }, 
+             method: 'POST', headers: { 'Content-Type': 'application/json' }, 
              body: JSON.stringify({ amount: totalToPay, source: 'pos' }),
           });
           const { success, paymentIntentId, error } = await processRes.json();
           if (!success) throw new Error(error || "Connection Failed");
 
           setCardStatusMessage("💳 Please Insert / Tap Card");
+          
           let isSuccess = false;
           
-          // 대기 루프 (120초)
-          for (let i = 0; i < 120; i++) {
+          // ✨✨ [핵심] 대기 시간을 300초(5분)로 대폭 연장
+          // POS가 단말기보다 먼저 타임아웃 되는 현상을 막습니다.
+          for (let i = 0; i < 300; i++) { 
               if (!isCardProcessing) break; 
               await new Promise(r => setTimeout(r, 1000));
+              
               const checkRes = await fetch('/api/stripe/capture', {
                   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentIntentId }),
               });
               const checkData = await checkRes.json();
-              if (checkData.status === 'succeeded') { isSuccess = true; break; }
-              else if (checkData.status === 'failed') throw new Error("Card Declined");
+              
+              if (checkData.status === 'succeeded') { 
+                  isSuccess = true; 
+                  break; 
+              } else if (checkData.status === 'failed' || checkData.status === 'canceled') {
+                  throw new Error("Card Declined or Canceled");
+              }
+              // 그 외 상태(requires_payment_method 등)는 계속 대기
           }
           
           if (isSuccess) {
-              // ✅ 성공 시: DB 저장 + 영수증 출력 + 화면 리셋 (finalizeTransaction 내부에서 처리됨)
-              await finalizeTransaction('CARD', paymentIntentId);
+              // (3) 성공 시: 영수증 인쇄
+              await finalizeTransaction('CARD', paymentIntentId, activeOrderId);
           } else {
-              throw new Error("Timeout");
+              throw new Error("Timeout: Payment took too long.");
           }
 
       } catch (e: any) {
-          // 🛑 실패 시: DB 저장 안 함! 화면만 리셋.
+          // (4) 실패 시: 리셋하지 않고 에러 메시지만 표시
           console.error("Payment Failed:", e);
-          
-          // 1) 에러 메시지 3초간 표시
           setCardStatusMessage(`❌ Error: ${e.message}`);
-          await new Promise(r => setTimeout(r, 3000));
+          await new Promise(r => setTimeout(r, 4000)); // 에러 확인 시간 4초
           
-          // 2) 화면 리셋 (DB 저장은 하지 않음)
-          setIsCardProcessing(false);     // POS 오버레이 끄기
-          setCart([]);                    // POS 카트 비우기 (기본 화면으로 리셋)
-          setTxn({ method: null, orderType: null, tableNum: null, tipAmount: 0 }); // 거래 상태 초기화
-          setCurrentOrderId(null);
-          
-          // 3) 손님 화면: IDLE 모드(광고)로 복귀
-          // (카트가 비워지면 useEffect에 의해 자동으로 IDLE로 가지만, 확실하게 보내줍니다)
-          sendState('IDLE', [], 0);
+          setIsCardProcessing(false); 
+          sendState('CART', cart, getSubtotal());
       }
   };
   
-  const finalizeTransaction = async (method: 'CASH' | 'CARD', transactionId: string | null = null) => {
+  // 거래 완료 및 영수증 인쇄
+  const finalizeTransaction = async (method: 'CASH' | 'CARD', transactionId: string | null = null, existingOrderId: string | null = null) => {
       const displayTableNum = txn.tableNum ? (txn.orderType === 'to_go' ? `To Go #${txn.tableNum}` : txn.tableNum) : (txn.orderType === 'to_go' ? 'To Go' : '00');
+      const orderIdToUse = existingOrderId || currentOrderId;
+
+      // CARD면 주방은 이미 나왔으니 'RECEIPT'만, CASH면 'ALL'
+      const printScope = method === 'CARD' ? 'RECEIPT' : 'ALL';
+
       const result = await processOrder(
           cart, getSubtotal(), txn.tipAmount, method, 
           txn.orderType || 'dine_in', displayTableNum, currentEmployee, 
-          currentOrderId, transactionId
+          orderIdToUse, transactionId,
+          'paid',      
+          printScope   // ✨ 인쇄 범위 지정
       );
+
       if (result.success) {
           if (method === 'CARD') {
               setCardStatusMessage("✅ Payment Complete!");
@@ -289,7 +278,7 @@ export function usePosLogic() {
           setTxn({ method: null, orderType: null, tableNum: null, tipAmount: 0 });
           setCurrentOrderId(null);
       } else {
-          alert("Error: " + result.error);
+          alert("Error finalizing: " + result.error);
           setIsCardProcessing(false);
       }
   };
@@ -297,7 +286,8 @@ export function usePosLogic() {
   const handlePhoneOrderConfirm = async (customerName: string) => {
       setIsPhoneOrderModalOpen(false);
       const displayTableNum = `To Go: ${customerName}`;
-      const result = await processOrder(cart, getSubtotal(), 0, 'PENDING', 'to_go', displayTableNum, currentEmployee);
+      // 전화 주문은 결제 전이므로 'KITCHEN'만 인쇄
+      const result = await processOrder(cart, getSubtotal(), 0, 'PENDING', 'to_go', displayTableNum, currentEmployee, null, null, 'open', 'KITCHEN');
       if (result.success) { alert(`✅ Phone Order Saved!`); setCart([]); }
       else alert("Error: " + result.error);
   };
