@@ -19,9 +19,7 @@ export async function POST(request: Request) {
       orderType, 
       tableNum,
       employeeName,
-      // ✨ [추가] 프론트엔드에서 보낸 주문 상태 (없으면 undefined)
       status,
-      // ✨ [추가] 트랜잭션 ID 받기
       transactionId 
     } = body;
 
@@ -32,10 +30,7 @@ export async function POST(request: Request) {
       .from('orders')
       .insert({
         total_amount: total,
-        
-        // ✨ [수정] 프론트에서 status를 보내면 그걸 쓰고, 안 보내면 'paid' (기존 호환성 유지)
         status: status || 'paid', 
-        
         table_number: tableNum,
         order_type: orderType,
         subtotal: subtotal,
@@ -60,7 +55,6 @@ export async function POST(request: Request) {
       const orderItems = items.map((item: any) => ({
         order_id: orderData.id,
         menu_item_id: item.id,
-        // ✨ [수정] 사용자 요청대로 Admin 이름(name)을 최우선으로 저장하도록 변경
         item_name: item.name || item.posName || 'Unknown Item', 
         price: item.price, 
         quantity: item.quantity,
@@ -78,9 +72,12 @@ export async function POST(request: Request) {
       }
     }
 
+    // ✨✨ [핵심 수정] 여기에 orderId를 반드시 포함시켜야 합니다! ✨✨
     return NextResponse.json({ 
       success: true, 
-      orderNumber: orderData.order_number 
+      orderNumber: orderData.order_number,
+      orderId: orderData.id, // 👈 이 한 줄이 없어서 에러가 났던 것입니다!
+      order: orderData       // (혹시 몰라 전체 데이터도 같이 보냅니다)
     });
 
   } catch (error: any) {

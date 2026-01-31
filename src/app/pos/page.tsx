@@ -8,6 +8,7 @@ import EmployeeLogin from '@/components/pos/EmployeeLogin';
 
 // Modals
 import CashPaymentModal from '@/components/pos/CashPaymentModal';
+import CardPaymentModal from '@/components/pos/CardPaymentModal'; // ✨ [추가] 카드 결제 모달 Import
 import OrderTypeModal from '@/components/shared/OrderTypeModal';
 import TableNumberModal from '@/components/shared/TableNumberModal';
 import TipModal from '@/components/shared/TipModal';
@@ -25,12 +26,13 @@ export default function PosPage() {
     isOrderTypeOpen, isTableNumOpen, isTipOpen, isCashModalOpen,
     isPhoneOrderModalOpen, setIsPhoneOrderModalOpen,
     
-    // ✨ [수정 1] setSelectedItemForMod 제거 -> closeModifierModal 사용
     selectedItemForMod, closeModifierModal, 
     
     editingNoteItem, setEditingNoteItem,
     showDayWarning, setShowDayWarning, warningTargetDay,
-    isCardProcessing, cardStatusMessage,
+    
+    // ✨ [수정] handleCancelPayment 추가 (취소 버튼용)
+    isCardProcessing, cardStatusMessage, handleCancelPayment,
     
     addToCart, removeFromCart, handleSaveNote, handleItemClick, getSubtotal,
     handlePhoneOrderClick, handlePhoneOrderConfirm,
@@ -82,21 +84,15 @@ export default function PosPage() {
       {/* 4. Modals */}
       {showDayWarning && <DayWarningModal targetDay={warningTargetDay} onClose={() => setShowDayWarning(false)} />}
       
-      {/* ✨ [수정 2] ModifierModal 핸들러 수정 */}
       {selectedItemForMod && (
-  <ModifierModal 
-    item={selectedItemForMod} 
-    modifiersObj={modifiersObj} 
-    onClose={closeModifierModal} 
-    
-    // ✨✨ [여기가 핵심입니다] ✨✨
-    // 모달에서 (item, options) 두 개를 보내줍니다.
-    // 우리는 addToCart(item, options) 순서로 그대로 전달해야 합니다.
-    onConfirm={(item, options) => {
-       console.log("Modal Confirm:", item.name, options); // 데이터 확인용 로그
-       addToCart(item, options);
-       closeModifierModal(); 
-    }}
+        <ModifierModal 
+          item={selectedItemForMod} 
+          modifiersObj={modifiersObj} 
+          onClose={closeModifierModal} 
+          onConfirm={(item, options) => {
+             addToCart(item, options);
+             closeModifierModal(); 
+          }}
         />
       )}
       
@@ -122,14 +118,14 @@ export default function PosPage() {
 
       <CashPaymentModal isOpen={isCashModalOpen} onClose={resetFlow} totalAmount={getSubtotal() + txn.tipAmount} onConfirm={handleCashPaymentConfirm} />
 
-      {/* 5. Card Processing Overlay */}
-      {isCardProcessing && (
-        <div className="fixed inset-0 z-[9999] bg-black/80 flex flex-col items-center justify-center text-white backdrop-blur-md">
-           <div className="animate-spin rounded-full h-20 w-20 border-b-4 border-white mb-8"></div>
-           <h2 className="text-4xl font-black mb-4">{cardStatusMessage}</h2>
-           <p className="text-xl text-gray-300">Do not refresh the page.</p>
-        </div>
-      )}
+      {/* ✨ [핵심 수정] 5. Card Payment Modal (취소 기능 포함) */}
+      {/* 기존의 단순 div를 삭제하고 아래 컴포넌트로 교체했습니다 */}
+      <CardPaymentModal
+        isOpen={isCardProcessing}
+        statusMessage={cardStatusMessage}
+        onCancel={handleCancelPayment}
+      />
+
     </div>
   );
 }

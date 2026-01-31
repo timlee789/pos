@@ -1,13 +1,18 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react'; // useRef 추가됨
 import { CartItem, Employee } from '@/lib/types';
 
-// ✨ [핵심 수정 1] IP 주소 대신 localhost 사용 (무조건 내 컴퓨터 내부에서 찾음)
 const PRINTER_SERVER_URL = 'http://localhost:4000/print';
 
 export function useTransaction() {
   const [isCardProcessing, setIsCardProcessing] = useState(false);
   const [cardStatusMessage, setCardStatusMessage] = useState('');
   
+  // ✨ [추가] 취소할 때 필요한 ID를 저장하는 금고
+  const currentPaymentIntentIdRef = useRef<string | null>(null);
+  // ✨ [추가] "취소 버튼 눌렀니?" 확인용 깃발
+  const isCancelledRef = useRef(false);
+
+  // 1. 주문 처리 (기존과 동일하지만 정석 버전 유지)
   const processOrder = async (
       cart: CartItem[], 
       subtotal: number, 
@@ -26,72 +31,58 @@ export function useTransaction() {
       
       let newOrderNumber = '';
       let savedOrderId = orderId; 
-      let saveRes;
 
       try {
-          // 1. DB 저장 (이건 이미 잘 되고 있음)
+          let saveRes;
+          const bodyData = {
+               items: cart, subtotal, tax: creditCardFee, tip, total: finalTotal,
+               paymentMethod, transactionId, orderType, tableNum,
+               employeeName: employee?.name || 'Unknown', status
+          };
+
           if (orderId) {
              saveRes = await fetch('/api/orders/update', {
                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                 body: JSON.stringify({ 
-                     orderId, paymentMethod, transactionId, tip, total: finalTotal, status 
-                 })
+                 body: JSON.stringify({ orderId, ...bodyData })
              });
           } else {
              saveRes = await fetch('/api/orders/create', {
                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                 body: JSON.stringify({
-                     items: cart, subtotal, tax: creditCardFee, tip, total: finalTotal,
-                     paymentMethod, transactionId, orderType, tableNum,
-                     employeeName: employee?.name || 'Unknown', status: status 
-                 })
+                 body: JSON.stringify(bodyData)
              });
           }
           
           const result = await saveRes.json();
-          if (!result.success) throw new Error(result.error);
+          if (!result.success) throw new Error(result.error || "DB Save Failed");
           
-          newOrderNumber = result.order?.order_number || result.orderNumber;
-          savedOrderId = result.order?.id || result.orderId || orderId; 
+          newOrderNumber = result.orderNumber || result.order?.order_number;
+          savedOrderId = result.orderId || result.order?.id || orderId; 
 
-          // 2. ✨ [핵심 수정 2] 프린터 에러 무시 (Try-Catch로 감싸기)
-          // 프린터 연결이 실패해도("Failed to fetch"), 여기서 에러를 삼켜버리고
-          // 성공(success: true)을 리턴해서, POS가 멈추지 않고 Stripe 결제로 넘어가게 만듭니다.
+          if (!savedOrderId) throw new Error("Critical Error: Server did not return Order ID.");
+
           if (printScope !== 'NONE') {
               try {
-                  console.log(`🖨️ Printing Request to localhost:4000... Scope=${printScope}`);
                   await fetch(PRINTER_SERVER_URL, { 
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
-                          items: cart, 
-                          orderNumber: newOrderNumber, 
-                          tableNumber: tableNum, 
-                          orderType,
-                          date: new Date().toLocaleString(), 
-                          subtotal, 
-                          tax: creditCardFee, 
-                          tipAmount: tip,
-                          totalAmount: finalTotal, 
-                          paymentMethod, 
-                          employeeName: employee?.name || 'Unknown',
-                          printKitchenOnly: printScope === 'KITCHEN', 
-                          printReceiptOnly: printScope === 'RECEIPT' 
+                          items: cart, orderNumber: newOrderNumber, tableNumber: tableNum, orderType,
+                          subtotal, tax: creditCardFee, tipAmount: tip, totalAmount: finalTotal, 
+                          paymentMethod, employeeName: employee?.name || 'Unknown',
+                          date: new Date().toLocaleString(),
+                          printKitchen: printScope === 'KITCHEN' || printScope === 'ALL',
+                          printReceipt: printScope === 'RECEIPT' || printScope === 'ALL'
                       })
                   });
-              } catch (printError) {
-                  // 🚨 에러가 나도 로그만 찍고 넘어감! (멈추지 않음)
-                  console.error("⚠️ Printer Connection Failed (Ignored):", printError);
-              }
+              } catch (printError) { console.error("⚠️ Print Ignored:", printError); }
           }
-          
           return { success: true, orderNumber: newOrderNumber, orderId: savedOrderId };
-
       } catch (error: any) {
-          console.error(error);
-          return { success: false, error: error.message };
+          console.error("Process Order Error:", error);
+          return { success: false, error: error?.message || "Unknown Error" };
       }
   };
 
+  // 2. 환불 함수
   const refundOrder = async (orderId: string, paymentIntentId: string, amount: number) => {
       try {
           const res = await fetch('/api/stripe/refund', {
@@ -102,5 +93,29 @@ export function useTransaction() {
       } catch (e: any) { return { success: false, error: e.message }; }
   };
 
-  return { isCardProcessing, setIsCardProcessing, cardStatusMessage, setCardStatusMessage, processOrder, refundOrder };
+  // ✨ [신규] 결제 취소 함수
+  const cancelPayment = async () => {
+      // 깃발을 들어서 "그만해!"라고 알림
+      isCancelledRef.current = true;
+      setCardStatusMessage("Cancelling...");
+
+      const pid = currentPaymentIntentIdRef.current;
+      if (pid) {
+          try {
+              await fetch('/api/stripe/cancel', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ paymentIntentId: pid })
+              });
+          } catch (e) { console.error("Cancel API failed", e); }
+      }
+      setIsCardProcessing(false);
+  };
+
+  // 상태값과 함수들 내보내기 (ref도 함께 내보내서 로직에서 씁니다)
+  return { 
+      isCardProcessing, setIsCardProcessing, 
+      cardStatusMessage, setCardStatusMessage, 
+      processOrder, refundOrder, cancelPayment, // cancelPayment 추가됨
+      currentPaymentIntentIdRef, isCancelledRef // 로직 제어용
+  };
 }

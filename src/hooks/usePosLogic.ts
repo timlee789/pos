@@ -23,7 +23,15 @@ export function usePosLogic() {
   const [isLoading, setIsLoading] = useState(true);
 
   const { cart, setCart, addToCart, removeFromCart, getSubtotal, editingNoteItem, setEditingNoteItem, handleSaveNote } = useCart(menuItems);
-  const { isCardProcessing, setIsCardProcessing, cardStatusMessage, setCardStatusMessage, processOrder, refundOrder } = useTransaction();
+  
+  // ✨ cancelPayment, ref들 가져오기
+  const { 
+      isCardProcessing, setIsCardProcessing, 
+      cardStatusMessage, setCardStatusMessage, 
+      processOrder, refundOrder, cancelPayment, 
+      currentPaymentIntentIdRef, isCancelledRef 
+  } = useTransaction();
+
   const { sendState, onTipSelected } = useCustomerDisplay();
 
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
@@ -154,7 +162,7 @@ export function usePosLogic() {
     }
   };
 
-  // 6. 결제 및 인쇄 처리 (핵심)
+  // 6. 결제 및 인쇄 처리
   const handleTipSelect = (amt: number) => {
     setTxn((prev) => ({ ...prev, tipAmount: amt }));
     setIsTipOpen(false);
@@ -168,24 +176,25 @@ export function usePosLogic() {
       await finalizeTransaction('CASH'); 
   };
 
-  // ✨✨ [핵심 수정] 타임아웃 방지 & 인쇄 순서 확실하게 수정
+  // ✨✨ [카드 결제 로직 수정] 타임아웃 해결 + 취소 기능 연동
+  // ✨✨ [카드 결제 로직 수정] 타이밍 문제 해결 (취소 예약 & 확인 사살)
   const handleCardPayment = async (tip: number) => {
       setIsCardProcessing(true);
-      
+      isCancelledRef.current = false; // 취소 깃발 초기화
+      currentPaymentIntentIdRef.current = null; // ID 초기화
+
       const subtotal = getSubtotal();
       const ccFee = subtotal * 0.03;
       const totalToPay = subtotal + ccFee + tip;
 
-      // (1) 결제 전: 주방/쉐이크만 인쇄 (영수증 X)
       setCardStatusMessage("Printing Kitchen Ticket...");
       const displayTableNum = txn.tableNum ? (txn.orderType === 'to_go' ? `To Go #${txn.tableNum}` : txn.tableNum) : (txn.orderType === 'to_go' ? 'To Go' : '00');
       
+      // 1. 주방 프린터 (이건 금방 됨)
       const preSaveResult = await processOrder(
           cart, subtotal, tip, 'CARD', 
           txn.orderType || 'dine_in', displayTableNum, currentEmployee, 
-          currentOrderId, null, 
-          'processing', 
-          'KITCHEN' // ✨ 주방 프린터만!
+          currentOrderId, null, 'processing', 'KITCHEN' 
       );
 
       if (!preSaveResult.success || !preSaveResult.orderId) {
@@ -199,64 +208,98 @@ export function usePosLogic() {
       sendState('PROCESSING', cart, subtotal);
 
       try {
+          // 🚨 [중요] 연결 전에 취소했는지 1차 체크
+          if (isCancelledRef.current) throw new Error("Cancelled by User");
+
           setCardStatusMessage(`Connecting to Terminal... ($${totalToPay.toFixed(2)})`);
 
-          // (2) Stripe 단말기 연결
+          // 2. Stripe 단말기 연결 요청 (여기서 1~2초 걸림)
           const processRes = await fetch('/api/stripe/process', {
              method: 'POST', headers: { 'Content-Type': 'application/json' }, 
              body: JSON.stringify({ amount: totalToPay, source: 'pos' }),
           });
           const { success, paymentIntentId, error } = await processRes.json();
+          
           if (!success) throw new Error(error || "Connection Failed");
+
+          // ✨ ID 저장 (이제 취소 가능해짐)
+          currentPaymentIntentIdRef.current = paymentIntentId;
+
+          // 🚨 [핵심 해결책 1] 연결 기다리는 동안 취소 버튼을 눌렀다면?
+          // ID를 받자마자 즉시 취소를 실행해버립니다.
+          if (isCancelledRef.current) {
+              console.log("⚠️ 연결 중 취소 감지! 즉시 종료 시도...");
+              await cancelPayment(); // 1타 (즉시 취소)
+              
+              // 🚨 [핵심 해결책 2] 단말기가 늦게 켜질 수 있으니 1.5초 뒤에 "확인 사살"
+              setTimeout(() => {
+                  console.log("🔫 확인 사살: 취소 명령 재전송");
+                  cancelPayment(); 
+              }, 1500);
+              
+              throw new Error("Cancelled by User (Late)");
+          }
 
           setCardStatusMessage("💳 Please Insert / Tap Card");
           
+          // 3. 무한 대기 루프 (5분)
+          const maxTime = Date.now() + 300 * 1000; 
           let isSuccess = false;
-          
-          // ✨✨ [핵심] 대기 시간을 300초(5분)로 대폭 연장
-          // POS가 단말기보다 먼저 타임아웃 되는 현상을 막습니다.
-          for (let i = 0; i < 300; i++) { 
-              if (!isCardProcessing) break; 
-              await new Promise(r => setTimeout(r, 1000));
-              
-              const checkRes = await fetch('/api/stripe/capture', {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentIntentId }),
-              });
-              const checkData = await checkRes.json();
-              
-              if (checkData.status === 'succeeded') { 
-                  isSuccess = true; 
-                  break; 
-              } else if (checkData.status === 'failed' || checkData.status === 'canceled') {
-                  throw new Error("Card Declined or Canceled");
+
+          while (Date.now() < maxTime) {
+              // (A) 취소 체크
+              if (isCancelledRef.current) {
+                  // 혹시 루프 돌다가 취소했는데 단말기가 안 꺼지면 여기서도 확인 사살
+                  await cancelPayment(); 
+                  throw new Error("Payment Cancelled by User");
               }
-              // 그 외 상태(requires_payment_method 등)는 계속 대기
+
+              try {
+                  await new Promise(r => setTimeout(r, 1000));
+                  const checkRes = await fetch('/api/stripe/capture', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentIntentId }),
+                  });
+                  const checkData = await checkRes.json();
+
+                  if (checkData.status === 'succeeded') { 
+                      isSuccess = true; 
+                      break; 
+                  } else if (checkData.status === 'canceled') {
+                      throw new Error("Payment Canceled on Terminal");
+                  } else if (checkData.status === 'failed') {
+                      throw new Error("Card Declined");
+                  }
+              } catch (networkErr) {
+                  console.warn("Polling glitch (ignored):", networkErr);
+              }
           }
           
           if (isSuccess) {
-              // (3) 성공 시: 영수증 인쇄
               await finalizeTransaction('CARD', paymentIntentId, activeOrderId);
           } else {
-              throw new Error("Timeout: Payment took too long.");
+              if (!isCancelledRef.current) throw new Error("Timeout: No payment detected.");
           }
 
       } catch (e: any) {
-          // (4) 실패 시: 리셋하지 않고 에러 메시지만 표시
           console.error("Payment Failed:", e);
-          setCardStatusMessage(`❌ Error: ${e.message}`);
-          await new Promise(r => setTimeout(r, 4000)); // 에러 확인 시간 4초
           
+          if (e.message.includes("Cancelled") || e.message.includes("User")) {
+              setCardStatusMessage("Transaction Cancelled.");
+              // 에러가 나서 끝날 때도 혹시 모르니 취소 명령 한 번 더 보냄 (안전 제일)
+              if (currentPaymentIntentIdRef.current) cancelPayment();
+          } else {
+              setCardStatusMessage(`❌ Error: ${e.message}`);
+          }
+
+          await new Promise(r => setTimeout(r, 2000)); 
           setIsCardProcessing(false); 
           sendState('CART', cart, getSubtotal());
       }
   };
   
-  // 거래 완료 및 영수증 인쇄
   const finalizeTransaction = async (method: 'CASH' | 'CARD', transactionId: string | null = null, existingOrderId: string | null = null) => {
       const displayTableNum = txn.tableNum ? (txn.orderType === 'to_go' ? `To Go #${txn.tableNum}` : txn.tableNum) : (txn.orderType === 'to_go' ? 'To Go' : '00');
       const orderIdToUse = existingOrderId || currentOrderId;
-
-      // CARD면 주방은 이미 나왔으니 'RECEIPT'만, CASH면 'ALL'
       const printScope = method === 'CARD' ? 'RECEIPT' : 'ALL';
 
       const result = await processOrder(
@@ -264,7 +307,7 @@ export function usePosLogic() {
           txn.orderType || 'dine_in', displayTableNum, currentEmployee, 
           orderIdToUse, transactionId,
           'paid',      
-          printScope   // ✨ 인쇄 범위 지정
+          printScope
       );
 
       if (result.success) {
@@ -286,10 +329,8 @@ export function usePosLogic() {
   const handlePhoneOrderConfirm = async (customerName: string) => {
       setIsPhoneOrderModalOpen(false);
       const displayTableNum = `To Go: ${customerName}`;
-      // 전화 주문은 결제 전이므로 'KITCHEN'만 인쇄
       const result = await processOrder(cart, getSubtotal(), 0, 'PENDING', 'to_go', displayTableNum, currentEmployee, null, null, 'open', 'KITCHEN');
-      if (result.success) { alert(`✅ Phone Order Saved!`); setCart([]); }
-      else alert("Error: " + result.error);
+      if (result.success) { alert(`✅ Phone Order Saved!`); setCart([]); } else { alert("Error: " + result.error); }
   };
 
   const handleRecallOrder = (order: any) => {
@@ -335,6 +376,9 @@ export function usePosLogic() {
     handlePhoneOrderConfirm,
     handleRecallOrder, handleRefundOrder: handleRefund,
     handlePaymentStart, handleOrderTypeSelect, handleTableNumConfirm, handleTipSelect,
-    handleCashPaymentConfirm, resetFlow, handleLogout
+    handleCashPaymentConfirm, resetFlow, handleLogout,
+    
+    // ✨ 취소 함수 내보내기 (UI에서 이 버튼을 만들어야 합니다!)
+    handleCancelPayment: cancelPayment 
   };
 }
