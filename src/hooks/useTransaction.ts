@@ -1,14 +1,13 @@
 import { useState } from 'react';
 import { CartItem, Employee } from '@/lib/types';
 
-// 프린터 서버 주소 (배치 파일로 실행된 로컬 서버)
-const PRINTER_SERVER_URL = 'http://192.168.50.106:4000/print';
+// ✨ [핵심 수정 1] IP 주소 대신 localhost 사용 (무조건 내 컴퓨터 내부에서 찾음)
+const PRINTER_SERVER_URL = 'http://localhost:4000/print';
 
 export function useTransaction() {
   const [isCardProcessing, setIsCardProcessing] = useState(false);
   const [cardStatusMessage, setCardStatusMessage] = useState('');
   
-  // ✨ [핵심 수정] printScope 파라미터로 인쇄 대상 제어
   const processOrder = async (
       cart: CartItem[], 
       subtotal: number, 
@@ -30,7 +29,7 @@ export function useTransaction() {
       let saveRes;
 
       try {
-          // 1. DB 저장/업데이트 로직
+          // 1. DB 저장 (이건 이미 잘 되고 있음)
           if (orderId) {
              saveRes = await fetch('/api/orders/update', {
                  method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -55,30 +54,34 @@ export function useTransaction() {
           newOrderNumber = result.order?.order_number || result.orderNumber;
           savedOrderId = result.order?.id || result.orderId || orderId; 
 
-          // 2. ✨ 프린터 서버 전송 (Stripe 결제 전후로 나누어 출력)
+          // 2. ✨ [핵심 수정 2] 프린터 에러 무시 (Try-Catch로 감싸기)
+          // 프린터 연결이 실패해도("Failed to fetch"), 여기서 에러를 삼켜버리고
+          // 성공(success: true)을 리턴해서, POS가 멈추지 않고 Stripe 결제로 넘어가게 만듭니다.
           if (printScope !== 'NONE') {
-              console.log(`🖨️ Printing Request: Scope=${printScope}`);
-              
-              await fetch(PRINTER_SERVER_URL, { 
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                      items: cart, 
-                      orderNumber: newOrderNumber, 
-                      tableNumber: tableNum, 
-                      orderType,
-                      date: new Date().toLocaleString(), 
-                      subtotal, 
-                      tax: creditCardFee, 
-                      tipAmount: tip,
-                      totalAmount: finalTotal, 
-                      paymentMethod, 
-                      employeeName: employee?.name || 'Unknown',
-                      
-                      // ✨ [중요] 프린터 서버에게 무엇을 출력할지 명확히 지시
-                      printKitchenOnly: printScope === 'KITCHEN', 
-                      printReceiptOnly: printScope === 'RECEIPT' 
-                  })
-              });
+              try {
+                  console.log(`🖨️ Printing Request to localhost:4000... Scope=${printScope}`);
+                  await fetch(PRINTER_SERVER_URL, { 
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                          items: cart, 
+                          orderNumber: newOrderNumber, 
+                          tableNumber: tableNum, 
+                          orderType,
+                          date: new Date().toLocaleString(), 
+                          subtotal, 
+                          tax: creditCardFee, 
+                          tipAmount: tip,
+                          totalAmount: finalTotal, 
+                          paymentMethod, 
+                          employeeName: employee?.name || 'Unknown',
+                          printKitchenOnly: printScope === 'KITCHEN', 
+                          printReceiptOnly: printScope === 'RECEIPT' 
+                      })
+                  });
+              } catch (printError) {
+                  // 🚨 에러가 나도 로그만 찍고 넘어감! (멈추지 않음)
+                  console.error("⚠️ Printer Connection Failed (Ignored):", printError);
+              }
           }
           
           return { success: true, orderNumber: newOrderNumber, orderId: savedOrderId };

@@ -1,0 +1,50 @@
+{
+    "settings": {
+        "printers": {
+            "kitchen1_ip": "192.168.50.3",
+            "kitchen2_ip": "192.168.50.19",
+            "receipt_ip": "192.168.50.201"
+        },
+        "design": {
+            "title": "THE COLLEGIATE GRILL",
+            "footer": "Thank You!",
+            "show_date": true
+        },
+        "abbreviations": {
+            "slaw": "S",
+            "onion": "O",
+            "mayo": "Mayo",
+            "ketchup": "K",
+            "mustard": "M",
+            "lettuce": "L",
+            "tomato": "T",
+            "pickles": "P",
+            "every": "EVERY",
+            "everything": "EVERY",
+            "no bun": "NO BUN",
+            "texas toast": "Texas",
+            "bbq sauce": "BBQ",
+            "make a meal - 1/2 onionring+d": "Meal-1/2 O-Ring",
+            "onion ring+soft drink": "Meal-1/2 O-Ring",
+            "make a meal-1/2ff+d": "Meal-1/2 FF",
+            "1/2frenchfries+softdrink": "Meal-1/2 FF",
+            "extra slaw": "X-Slaw",
+            "extra lettuce": "X-L",
+            "extra tomato": "X-T",
+            "extra pickles": "X-P",
+            "add bacon": "Add BAC",
+            "add chili": "Add Chili",
+            "add grilled onions": "Add G-Onion",
+            "add cheese": "Add Chese",
+            "extra cheese": "Extra Chese",
+            "extra patty": "X-Patty",
+            "italian": "Italian",
+            "ranch": "Ranch",
+            "wheat": "Wheat",
+            "white": "White",
+            "malt": "Malt",
+            "to go": "TO GO",
+            "dine in": "HERE"
+        }
+    }
+}
