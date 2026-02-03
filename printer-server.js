@@ -6,15 +6,12 @@ const app = express();
 const PORT = 4000;
 
 // ==========================================
-// ⚠️ [설정] 프린터 IP 설정
+// ⚠️ [설정] 프린터 IP
 // ==========================================
 const KITCHEN_PRINTER_IP   = '192.168.50.3';   // 🍔 주방
 const MILKSHAKE_PRINTER_IP = '192.168.50.19';  // 🥤 쉐이크
 const RECEIPT_PRINTER_IP   = '192.168.50.201'; // 🧾 영수증
 
-// ==========================================
-// 🚀 [보안 설정]
-// ==========================================
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
@@ -62,22 +59,22 @@ function formatCloverDate(dateObj) {
 // ==========================================
 function sendToNetworkPrinter(ip, buffer, label) {
     return new Promise((resolve) => {
-        console.log(`⏳ [${label}] 전송 시도 -> ${ip}:9100`);
+        console.log(`⏳ [${label}] IP 연결 시도 -> ${ip}:9100`);
         const client = new net.Socket();
         client.setTimeout(3000); 
         
         client.connect(9100, ip, () => {
+            console.log(`⚡ [${label}] 연결 성공! 데이터 전송 중...`);
             client.write(Buffer.from(buffer));
             client.end();
         });
         
-        client.on('close', () => { console.log(`✅ [${label}] 전송 완료`); resolve(); });
-        client.on('error', (err) => { console.error(`⚠️ [${label}] 연결 실패: ${err.message}`); client.destroy(); resolve(); });
-        client.on('timeout', () => { console.error(`⚠️ [${label}] Timeout`); client.destroy(); resolve(); });
+        client.on('close', () => { console.log(`✅ [${label}] 전송 완료 & 연결 종료`); resolve(); });
+        client.on('error', (err) => { console.error(`⚠️ [${label}] 연결 실패(에러): ${err.message}`); client.destroy(); resolve(); });
+        client.on('timeout', () => { console.error(`⚠️ [${label}] 타임아웃(응답없음)`); client.destroy(); resolve(); });
     });
 }
 
-// 🎨 [주방 버퍼 생성]
 function generateKitchenBuffer(items, tableNumber, orderId, title, useAbbreviations, employeeName) {
     const INIT = '\x1b\x40'; const RED = '\x1b\x34'; const BLACK = '\x1b\x35'; 
     const ALIGN_CENTER = '\x1b\x1d\x61\x01'; const ALIGN_LEFT = '\x1b\x1d\x61\x00';
@@ -96,10 +93,7 @@ function generateKitchenBuffer(items, tableNumber, orderId, title, useAbbreviati
     buffer += ALIGN_LEFT + BLACK + `${dateStr} ${timeStr}\nServer: ${serverName}\n----------------\n`; 
 
     items.forEach((item, index) => {
-        // ✨ [수정] 여기서 posName을 가장 먼저 찾도록 변경했습니다!
-        // (데이터가 posName으로 오든 pos_name으로 오든 다 잡아냅니다)
         const name = item.posName || item.pos_name || item.name || 'Unknown';
-        
         const qty = item.quantity || 1;
         const displayName = qty > 1 ? `${qty} ${name}` : name;
         buffer += ALIGN_LEFT + BLACK + displayName + "\n";
@@ -121,7 +115,6 @@ function generateKitchenBuffer(items, tableNumber, orderId, title, useAbbreviati
     return buffer;
 }
 
-// 🎨 [영수증 버퍼 생성]
 function generateReceiptBuffer(data) {
     const { items, tableNumber, subtotal, tax, tipAmount, totalAmount, date, orderType, employeeName, paymentMethod } = data;
     const displayOrderNum = (tableNumber && tableNumber !== 'To Go') ? tableNumber : "To Go";
@@ -142,7 +135,6 @@ function generateReceiptBuffer(data) {
     items.forEach(item => {
         const qty = item.quantity || 1;
         const price = (item.totalPrice || 0).toFixed(2);
-        // ✨ [수정] 영수증도 POS 이름으로 나오게 통일
         const name = item.posName || item.pos_name || item.name || 'Unknown';
         
         buffer += BOLD_ON + `${qty} ${name}` + BOLD_OFF + "\n";
@@ -166,11 +158,11 @@ function generateReceiptBuffer(data) {
     return buffer;
 }
 
-// ==========================================
-// 🚀 [메인 라우트]
-// ==========================================
 app.post('/print', async (req, res) => {
     try {
+        console.log("------------------------------------------------");
+        console.log(`📩 [인쇄 요청] 주문번호: ${req.body.tableNumber || 'Unknown'}`); 
+        
         const { 
             items, tableNumber, totalAmount, orderType, employeeName, paymentMethod,
             printKitchen, printReceipt
@@ -181,9 +173,7 @@ app.post('/print', async (req, res) => {
 
         if (items) {
             items.forEach(item => {
-                // ✨ [수정] 쉐이크 분류할 때도 POS 이름까지 같이 확인 (안전빵)
                 const nameToCheck = (item.posName || item.pos_name || item.name || "").toLowerCase();
-                
                 if (nameToCheck.includes('milkshake') || nameToCheck.includes('shake')) {
                     milkshakeItems.push(item);
                 } else {
@@ -194,32 +184,34 @@ app.post('/print', async (req, res) => {
 
         const printPromises = [];
 
-        // [A] 주방 인쇄
         if (printKitchen) {
             if (kitchenItems.length > 0) {
+                console.log("🍔 주방 프린터로 전송 중...");
                 const buffer = generateKitchenBuffer(kitchenItems, tableNumber, null, "KITCHEN", true, employeeName);
                 printPromises.push(sendToNetworkPrinter(KITCHEN_PRINTER_IP, buffer, "Kitchen"));
             }
             if (milkshakeItems.length > 0) {
+                console.log("🥤 쉐이크 프린터로 전송 중...");
                 const buffer = generateKitchenBuffer(milkshakeItems, tableNumber, null, "MILKSHAKE", true, employeeName);
                 printPromises.push(sendToNetworkPrinter(MILKSHAKE_PRINTER_IP, buffer, "Shake"));
             }
         }
 
-        // [B] 영수증 인쇄
         if (printReceipt && totalAmount !== undefined) {
+            console.log("🧾 영수증 프린터로 전송 중...");
             const receiptBuffer = generateReceiptBuffer(req.body);
             printPromises.push(sendToNetworkPrinter(RECEIPT_PRINTER_IP, receiptBuffer, "Receipt"));
         }
 
         await Promise.all(printPromises);
-
+        console.log("✅ 모든 인쇄 작업 완료");
+        console.log("------------------------------------------------");
         res.json({ success: true, message: 'Processed successfully' });
 
     } catch (e) {
-        console.error("❌ Print Server Error (Ignored):", e.message);
+        console.error("❌ Print Server Error:", e.message);
         res.json({ success: true, message: 'Error handled', error: e.message });
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Printer Server Running on Port ${PORT} (Strict Mode)`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Printer Server Running on Port ${PORT}`));

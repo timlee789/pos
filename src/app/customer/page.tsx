@@ -1,15 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { CartItem, ModifierGroup, ModifierOption } from '@/lib/types';
 import { CustomerViewMode } from '@/hooks/useCustomerDisplay';
 
-// ✨ [수정 1] 404 에러 방지를 위해 '인터넷에 있는 임시 이미지'로 주소 변경
-// 나중에 실제 파일(public/ads/...)을 넣으시면 원래대로 바꾸세요.
 const AD_CONTENTS = [
-  { type: 'image', src: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1920&q=80' }, // 햄버거
-  { type: 'image', src: 'https://images.unsplash.com/photo-1594212699903-ec8a3eca50f5?auto=format&fit=crop&w=1920&q=80' }, // 세트 메뉴
-  { type: 'image', src: 'https://images.unsplash.com/photo-1561758033-d8f19662cb23?auto=format&fit=crop&w=1920&q=80' }, // 음료
+  { type: 'image', src: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1920&q=80' }, 
+  { type: 'image', src: 'https://images.unsplash.com/photo-1594212699903-ec8a3eca50f5?auto=format&fit=crop&w=1920&q=80' }, 
+  { type: 'image', src: 'https://images.unsplash.com/photo-1561758033-d8f19662cb23?auto=format&fit=crop&w=1920&q=80' }, 
 ];
 
 export default function CustomerPage() {
@@ -19,40 +17,55 @@ export default function CustomerPage() {
   const [activeItemName, setActiveItemName] = useState('');
   const [availableGroups, setAvailableGroups] = useState<ModifierGroup[]>([]);
   
-  const [channel, setChannel] = useState<BroadcastChannel | null>(null);
+  // Polling을 위한 Ref
+  const lastUpdateRef = useRef<number>(0);
 
   useEffect(() => {
-    const ch = new BroadcastChannel('pos-customer-display');
-    setChannel(ch);
-
-    ch.onmessage = (event) => {
-      if (event.data.type === 'SYNC_STATE') {
-        const { mode, cart, total, activeItemName, availableGroups } = event.data.payload;
-        
-        setViewMode(mode);
-        setCart(cart);
-        setTotal(total);
-        if (activeItemName) setActiveItemName(activeItemName);
-        if (availableGroups) {
-            setAvailableGroups(availableGroups);
-        } else {
-            setAvailableGroups([]);
+    // ✨ [수정] 0.5초마다 서버에서 상태 가져오기 (Polling)
+    const interval = setInterval(async () => {
+        try {
+            const res = await fetch('/api/display', { cache: 'no-store' });
+            if (!res.ok) return;
+            
+            const data = await res.json();
+            
+            // 데이터가 변했을 때만 업데이트 (렌더링 최적화)
+            if (data.lastUpdated && data.lastUpdated !== lastUpdateRef.current) {
+                lastUpdateRef.current = data.lastUpdated;
+                
+                setViewMode(data.mode);
+                setCart(data.cart || []);
+                setTotal(data.total || 0);
+                setActiveItemName(data.activeItemName || '');
+                setAvailableGroups(data.availableGroups || []);
+            }
+        } catch (e) {
+            // 무시 (네트워크 에러 등)
         }
-      }
-    };
-    return () => ch.close();
+    }, 500); // 0.5초 간격
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleTipSelect = (percentage: number | 'NO') => {
-    if (!channel) return;
     let tipAmount = percentage === 'NO' ? 0 : total * (percentage / 100);
-    channel.postMessage({ type: 'TIP_SELECTED', payload: { amount: tipAmount } });
+    
+    // 1. BroadcastChannel 전송
+    const ch = new BroadcastChannel('pos-customer-display');
+    ch.postMessage({ type: 'TIP_SELECTED', payload: { amount: tipAmount } });
+    setTimeout(() => ch.close(), 100);
+
+    // 2. Storage Event 전송 (백업용)
+    localStorage.setItem('POS_TIP_SELECTED', JSON.stringify({ 
+        amount: tipAmount, 
+        timestamp: Date.now() 
+    }));
   };
 
+  // --- 아래부터는 UI 코드 (기존과 동일) ---
+
   // 1. 대기 화면 (광고)
-  if (viewMode === 'IDLE') {
-    return <IdleSlideshow />;
-  }
+  if (viewMode === 'IDLE') return <IdleSlideshow />;
 
   // 2. 결제 성공 화면
   if (viewMode === 'PAYMENT_SUCCESS') {
@@ -64,7 +77,7 @@ export default function CustomerPage() {
     );
   }
 
-  // 3. 결제 진행 중 (카드 투입)
+  // 3. 결제 진행 중
   if (viewMode === 'PROCESSING') {
     return (
       <div className="h-screen bg-blue-600 flex flex-col items-center justify-center text-white animate-in fade-in duration-300">
@@ -89,7 +102,6 @@ export default function CustomerPage() {
         <h1 className="text-5xl font-black text-gray-800 mb-4">Would you like to add a Tip?</h1>
         <p className="text-2xl text-gray-500 mb-10">Your support goes directly to our team!</p>
         <div className="grid grid-cols-2 gap-6 w-full max-w-4xl">
-           {/* ✨ [수정 2] 15% 버튼에서 highlight 속성 제거 -> 모든 버튼 색상 통일 */}
            <TipButton label="10%" sub={`$${(total * 0.10).toFixed(2)}`} onClick={() => handleTipSelect(10)} />
            <TipButton label="15%" sub={`$${(total * 0.15).toFixed(2)}`} onClick={() => handleTipSelect(15)} />
            <TipButton label="20%" sub={`$${(total * 0.20).toFixed(2)}`} onClick={() => handleTipSelect(20)} />
@@ -99,7 +111,42 @@ export default function CustomerPage() {
     );
   }
 
-  // 5. 옵션 전체 보기 화면
+  // 5. 주문 유형 선택
+  if (viewMode === 'ORDER_TYPE_SELECT') {
+    return (
+      <div className="h-screen bg-gray-900 flex flex-col items-center justify-center text-white">
+         <h2 className="text-4xl text-gray-400 font-bold mb-12 uppercase tracking-widest">How would you like your order?</h2>
+         <div className="flex gap-12">
+            <div className="w-[400px] h-[300px] bg-gray-800 rounded-3xl border-4 border-gray-700 flex flex-col items-center justify-center opacity-80">
+                <span className="text-8xl mb-4">🍽️</span>
+                <span className="text-5xl font-black">Dine In</span>
+            </div>
+            <div className="w-[400px] h-[300px] bg-gray-800 rounded-3xl border-4 border-gray-700 flex flex-col items-center justify-center opacity-80">
+                <span className="text-8xl mb-4">🛍️</span>
+                <span className="text-5xl font-black">To Go</span>
+            </div>
+         </div>
+      </div>
+    );
+  }
+
+  // 6. 테이블 번호 입력
+  if (viewMode === 'TABLE_NUMBER_SELECT') {
+    return (
+      <div className="h-screen bg-gray-900 flex flex-col items-center justify-center text-white">
+         <div className="bg-gray-800 p-12 rounded-[3rem] shadow-2xl border border-gray-700 text-center w-[600px]">
+             <p className="text-3xl text-gray-400 font-bold mb-6 uppercase tracking-widest">Table Service</p>
+             <h1 className="text-6xl font-black mb-8">Table Number</h1>
+             <div className="w-full h-32 bg-black rounded-2xl flex items-center justify-center border-2 border-gray-600">
+                <span className="text-6xl text-gray-500 animate-pulse">Entering...</span>
+             </div>
+             <p className="mt-8 text-xl text-gray-500">Please wait while we set up your table.</p>
+         </div>
+      </div>
+    );
+  }
+
+  // 7. 옵션 선택
   if (viewMode === 'MODIFIER_SELECT') {
     return (
       <div className="h-screen bg-gray-900 flex text-white">
@@ -145,7 +192,7 @@ export default function CustomerPage() {
     );
   }
 
-  // 6. 기본 장바구니 화면 (CART)
+  // 8. 기본 장바구니 (CART)
   return (
     <div className="h-screen bg-black text-white flex">
       <div className="flex-1 p-8 border-r border-gray-800 overflow-y-auto">
@@ -199,7 +246,6 @@ function IdleSlideshow() {
               <video src={content.src} className="w-full h-full object-cover" autoPlay muted loop />
           ) : (
               <div className="w-full h-full bg-cover bg-center flex items-center justify-center" style={{ backgroundImage: `url(${content.src})` }}>
-                  {/* 이미지가 없을 경우를 대비한 텍스트 (하지만 위에서 Unsplash URL을 넣어서 이제 잘 나올 겁니다) */}
               </div>
           )}
       </div>
@@ -210,7 +256,6 @@ function IdleSlideshow() {
 function TipButton({ label, sub, onClick, highlight, color = 'blue' }: any) {
   const baseClass = "h-40 rounded-3xl flex flex-col items-center justify-center transition-all active:scale-95 shadow-xl border-4";
   const colors: any = {
-    // highlight가 true면 진한 파랑, 아니면 흰색 배경 (파란 테두리)
     blue: highlight 
       ? "bg-blue-600 border-blue-400 text-white hover:bg-blue-500" 
       : "bg-white border-blue-100 text-blue-900 hover:bg-blue-50",
