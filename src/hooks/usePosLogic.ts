@@ -1,5 +1,4 @@
-// src/hooks/usePosLogic.ts
-import { useState, useEffect, useReducer } from 'react';
+import { useState, useEffect, useReducer, useCallback, useRef } from 'react';
 import { getPosData } from '@/lib/dataFetcher';
 import { useCustomerDisplay } from './useCustomerDisplay';
 import { useCart } from './useCart';
@@ -8,6 +7,7 @@ import { MenuItem, Category, ModifierGroup, Employee } from '@/lib/types';
 
 const ADMIN_CONFIG = { enableToGoTableNum: true };
 
+// ... (Keep the PosFlowState interface and flowReducer as they are)
 interface PosFlowState {
   flowStep: 'idle' | 'orderType' | 'tableNum' | 'tip' | 'cash' | 'phoneOrder' | 'orderList' | 'card_payment';
   paymentMethod: 'CASH' | 'CARD' | null;
@@ -43,10 +43,9 @@ function flowReducer(state: PosFlowState, action: FlowAction): PosFlowState {
       const nextStep = action.payload.type === 'dine_in' || ADMIN_CONFIG.enableToGoTableNum ? 'tableNum' : (state.paymentMethod === 'CARD' ? 'tip' : 'cash');
       return { ...state, orderType: action.payload.type, flowStep: nextStep };
     case 'CONFIRM_TABLE_NUM':
-      const finalStep = state.paymentMethod === 'CARD' ? 'tip' : 'cash';
-      return { ...state, tableNum: action.payload.num, flowStep: finalStep };
+      return { ...state, tableNum: action.payload.num, flowStep: state.paymentMethod === 'CARD' ? 'tip' : 'cash' };
     case 'SELECT_TIP':
-      return { ...state, tipAmount: action.payload.amount, flowStep: 'card_payment' };
+        return { ...state, tipAmount: action.payload.amount, flowStep: 'card_payment' }; 
     case 'CONFIRM_CASH_PAYMENT':
       return { ...state, flowStep: 'idle' };
     case 'SHOW_PHONE_ORDER_MODAL':
@@ -54,7 +53,7 @@ function flowReducer(state: PosFlowState, action: FlowAction): PosFlowState {
     case 'SHOW_ORDER_LIST':
       return { ...state, flowStep: 'orderList' };
     case 'RESET_FLOW':
-      return { ...initialFlowState, paymentMethod: state.paymentMethod };
+      return { ...initialFlowState, flowStep: state.flowStep === 'tip' ? 'tip' : initialFlowState.flowStep };
     case 'FINALIZE_TRANSACTION':
       return initialFlowState;
     default:
@@ -79,97 +78,117 @@ export function usePosLogic() {
   const { isCardProcessing, setIsCardProcessing, cardStatusMessage, setCardStatusMessage, processOrder, refundOrder, cancelPayment, processStripePayment } = useTransaction();
   const { sendState } = useCustomerDisplay();
 
+  // Use a ref to hold the processCardPayment function to avoid stale closures in the listener
+  const processCardPaymentRef = useRef(processCardPayment);
+  useEffect(() => {
+    processCardPaymentRef.current = processCardPayment;
+  }, [cart, getSubtotal, flowState]); // Update the ref whenever its dependencies change
+
+  const handleTipSelectAndProcessCard = useCallback((amount: number) => {
+    if (flowState.flowStep !== 'tip') return;
+    dispatch({ type: 'SELECT_TIP', payload: { amount } });
+    // Use the ref to call the latest version of the function
+    processCardPaymentRef.current(amount);
+  }, [flowState.flowStep]);
+
+  useEffect(() => {
+    const channel = new BroadcastChannel('pos-customer-display');
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'TIP_SELECTED') {
+        handleTipSelectAndProcessCard(event.data.payload.amount);
+      }
+    };
+    channel.addEventListener('message', handleMessage);
+    return () => {
+      channel.removeEventListener('message', handleMessage);
+      channel.close();
+    };
+  }, [handleTipSelectAndProcessCard]);
+
   useEffect(() => {
     const loadData = async () => {
+      setIsLoading(true);
       try {
-        setIsLoading(true);
         const data = await getPosData();
         setCategories(data.categories);
         setMenuItems(data.items);
         setModifiersObj(data.modifiersObj);
         if (data.categories.length > 0) setSelectedCategory(data.categories[0].id);
-      } catch (error) { console.error("Failed to load POS data:", error); } 
+      } catch (error) { console.error("Failed to load POS data:", error); }
       finally { setIsLoading(false); }
     };
     loadData();
   }, []);
 
   useEffect(() => {
+    const subtotal = getSubtotal();
+    switch (flowState.flowStep) {
+      case 'idle':
+        if (!isCardProcessing) sendState('CART', cart, subtotal);
+        break;
+      case 'orderType':
+        sendState('ORDER_TYPE_SELECT', cart, subtotal);
+        break;
+      case 'tableNum':
+        sendState('TABLE_NUMBER_SELECT', cart, subtotal);
+        break;
+      case 'tip':
+        sendState('TIPPING', cart, subtotal);
+        break;
+      // No default case needed, prevents reverting to CART during processing
+    }
     if (cart.length === 0 && flowState.flowStep === 'idle') {
       sendState('IDLE', [], 0);
-      return;
-    }
-    
-    switch (flowState.flowStep) {
-        case 'orderType':
-            sendState('ORDER_TYPE_SELECT', cart, getSubtotal());
-            break;
-        case 'tableNum':
-            sendState('TABLE_NUMBER_SELECT', cart, getSubtotal());
-            break;
-        case 'tip':
-            sendState('TIPPING', cart, getSubtotal());
-            break;
-        case 'idle':
-             if (!isCardProcessing) sendState('CART', cart, getSubtotal());
-             break;
-        default:
-            break;
     }
   }, [cart, getSubtotal, sendState, flowState.flowStep, isCardProcessing]);
 
-  const processCardPayment = async (tipAmount: number) => {
+  async function processCardPayment(tipAmount: number) {
     if (cart.length === 0) {
         alert('Cart is empty.');
-        dispatch({ type: 'RESET_FLOW' });
-        return;
+        return dispatch({ type: 'RESET_FLOW' });
     }
     setIsCardProcessing(true);
-    setCardStatusMessage('Printing to kitchen...');
     const totalAmount = getSubtotal() + tipAmount;
-    sendState('CARD_PROCESSING', cart, totalAmount);
+    sendState('PROCESSING', cart, totalAmount);
 
-    const displayTableNum = flowState.tableNum || (flowState.orderType === 'to_go' ? 'To-Go' : 'Dine-In');
-
-    // 1. Print to kitchen and create order in DB
-    const kitchenPrintResult = await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', displayTableNum, currentEmployee, null, null, 'processing', 'KITCHEN');
+    const kitchenPrintResult = await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', flowState.tableNum || 'To-Go', currentEmployee, null, null, 'processing', 'KITCHEN');
 
     if (!kitchenPrintResult.success || !kitchenPrintResult.orderId) {
-        setCardStatusMessage(kitchenPrintResult.error || 'Failed to print to kitchen. Please try again.');
+      setCardStatusMessage(kitchenPrintResult.error || 'Kitchen print failed.');
+      setTimeout(() => {
         setIsCardProcessing(false);
-        return;
+        dispatch({ type: 'RESET_FLOW' }); // Go back to tip screen
+        sendState('TIPPING', cart, getSubtotal());
+      }, 3000);
+      return;
     }
 
-    setCardStatusMessage('Processing card payment...');
-    
-    // 2. Process payment via Stripe
     const stripeResult = await processStripePayment(totalAmount, 'pos', kitchenPrintResult.orderId);
 
     if (stripeResult.success && stripeResult.paymentIntentId) {
-        // 3. Update order status to 'paid' and print receipt
-        const finalizationResult = await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', displayTableNum, currentEmployee, kitchenPrintResult.orderId, stripeResult.paymentIntentId, 'paid', 'RECEIPT');
-
-        if(finalizationResult.success){
-            setCardStatusMessage('Payment successful! Printing receipt...');
+        const finalizationResult = await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', flowState.tableNum || 'To-Go', currentEmployee, kitchenPrintResult.orderId, stripeResult.paymentIntentId, 'paid', 'RECEIPT');
+        
+        if(finalizationResult.success) {
             sendState('PAYMENT_SUCCESS', [], 0);
             setCart([]);
             dispatch({ type: 'FINALIZE_TRANSACTION' });
         } else {
-            setCardStatusMessage(finalizationResult.error || 'Failed to finalize order. Please check.');
+            setCardStatusMessage('Error finalizing order.'); // Handle this case better
         }
     } else {
-        setCardStatusMessage(stripeResult.error || 'Payment failed. Please check details and try again.');
-        // Don't clear cart, so user can retry
+        setCardStatusMessage(stripeResult.error || 'Payment failed.');
+        setTimeout(() => {
+            setIsCardProcessing(false);
+            dispatch({ type: 'RESET_FLOW' }); // Go back to tip screen
+            sendState('TIPPING', cart, getSubtotal());
+        }, 3000);
     }
-    setIsCardProcessing(false);
-  };
-  
-  const handleTipSelectAndProcessCard = (amount: number) => {
-    dispatch({ type: 'SELECT_TIP', payload: { amount } });
-    processCardPayment(amount);
-  };
+    // Reset processing state after a delay to show the final message
+    setTimeout(() => setIsCardProcessing(false), 3000);
+  }
 
-  return {
+  // ... (return statement with all the handlers)
+    return {
     currentEmployee, setCurrentEmployee, cart, categories, menuItems, modifiersObj,
     selectedCategory, setSelectedCategory, isLoading, 
     flowState, dispatch,
@@ -207,9 +226,12 @@ export function usePosLogic() {
     handleTipSelectAndProcessCard,
     handleCashPaymentConfirm: async (received: number, change: number) => {
         dispatch({ type: 'CONFIRM_CASH_PAYMENT', payload: { received, change } });
-        await processOrder(cart, getSubtotal(), 0, 'CASH', flowState.orderType || 'dine_in', flowState.tableNum || 'To-Go', currentEmployee, null, null, 'paid', 'ALL');
-        setCart([]);
-        dispatch({ type: 'FINALIZE_TRANSACTION' });
+        const result = await processOrder(cart, getSubtotal(), 0, 'CASH', flowState.orderType || 'dine_in', flowState.tableNum || 'To-Go', currentEmployee, null, null, 'paid', 'ALL');
+        if(result.success) {
+            sendState('PAYMENT_SUCCESS', [], 0);
+            setCart([]);
+            dispatch({ type: 'FINALIZE_TRANSACTION' });
+        }
     },
     handlePhoneOrderConfirm: async (name: string) => {
         await processOrder(cart, getSubtotal(), 0, 'PENDING', 'to_go', `To Go: ${name}`, currentEmployee, null, null, 'open', 'KITCHEN');
