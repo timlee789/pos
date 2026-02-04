@@ -17,11 +17,9 @@ export default function CustomerPage() {
   const [activeItemName, setActiveItemName] = useState('');
   const [availableGroups, setAvailableGroups] = useState<ModifierGroup[]>([]);
   
-  // Polling을 위한 Ref
   const lastUpdateRef = useRef<number>(0);
 
   useEffect(() => {
-    // ✨ [수정] 0.5초마다 서버에서 상태 가져오기 (Polling)
     const interval = setInterval(async () => {
         try {
             const res = await fetch('/api/display', { cache: 'no-store' });
@@ -29,7 +27,6 @@ export default function CustomerPage() {
             
             const data = await res.json();
             
-            // 데이터가 변했을 때만 업데이트 (렌더링 최적화)
             if (data.lastUpdated && data.lastUpdated !== lastUpdateRef.current) {
                 lastUpdateRef.current = data.lastUpdated;
                 
@@ -40,9 +37,9 @@ export default function CustomerPage() {
                 setAvailableGroups(data.availableGroups || []);
             }
         } catch (e) {
-            // 무시 (네트워크 에러 등)
+            // Ignore network errors
         }
-    }, 500); // 0.5초 간격
+    }, 500);
 
     return () => clearInterval(interval);
   }, []);
@@ -50,24 +47,29 @@ export default function CustomerPage() {
   const handleTipSelect = (percentage: number | 'NO') => {
     let tipAmount = percentage === 'NO' ? 0 : total * (percentage / 100);
     
-    // 1. BroadcastChannel 전송
     const ch = new BroadcastChannel('pos-customer-display');
     ch.postMessage({ type: 'TIP_SELECTED', payload: { amount: tipAmount } });
     setTimeout(() => ch.close(), 100);
 
-    // 2. Storage Event 전송 (백업용)
     localStorage.setItem('POS_TIP_SELECTED', JSON.stringify({ 
         amount: tipAmount, 
         timestamp: Date.now() 
     }));
   };
 
-  // --- 아래부터는 UI 코드 (기존과 동일) ---
+  const handleOrderTypeSelect = (orderType: 'DINE_IN' | 'TO_GO') => {
+    const ch = new BroadcastChannel('pos-customer-display');
+    ch.postMessage({ type: 'ORDER_TYPE_SELECTED', payload: { type: orderType } });
+    setTimeout(() => ch.close(), 100);
 
-  // 1. 대기 화면 (광고)
+    localStorage.setItem('POS_ORDER_TYPE_SELECTED', JSON.stringify({
+        type: orderType,
+        timestamp: Date.now()
+    }));
+  };
+
   if (viewMode === 'IDLE') return <IdleSlideshow />;
 
-  // 2. 결제 성공 화면
   if (viewMode === 'PAYMENT_SUCCESS') {
     return (
       <div className="h-screen bg-green-600 flex flex-col items-center justify-center text-white animate-in zoom-in duration-300">
@@ -77,7 +79,6 @@ export default function CustomerPage() {
     );
   }
 
-  // 3. 결제 진행 중
   if (viewMode === 'PROCESSING') {
     return (
       <div className="h-screen bg-blue-600 flex flex-col items-center justify-center text-white animate-in fade-in duration-300">
@@ -95,7 +96,6 @@ export default function CustomerPage() {
     );
   }
 
-  // 4. 팁 선택 화면
   if (viewMode === 'TIPPING') {
     return (
       <div className="h-screen bg-white flex flex-col items-center justify-center p-10">
@@ -111,26 +111,24 @@ export default function CustomerPage() {
     );
   }
 
-  // 5. 주문 유형 선택
   if (viewMode === 'ORDER_TYPE_SELECT') {
     return (
       <div className="h-screen bg-gray-900 flex flex-col items-center justify-center text-white">
          <h2 className="text-4xl text-gray-400 font-bold mb-12 uppercase tracking-widest">How would you like your order?</h2>
          <div className="flex gap-12">
-            <div className="w-[400px] h-[300px] bg-gray-800 rounded-3xl border-4 border-gray-700 flex flex-col items-center justify-center opacity-80">
+            <button onClick={() => handleOrderTypeSelect('DINE_IN')} className="w-[400px] h-[300px] bg-gray-800 rounded-3xl border-4 border-gray-700 flex flex-col items-center justify-center transition-all hover:bg-gray-700 hover:border-blue-500 active:scale-95">
                 <span className="text-8xl mb-4">🍽️</span>
                 <span className="text-5xl font-black">Dine In</span>
-            </div>
-            <div className="w-[400px] h-[300px] bg-gray-800 rounded-3xl border-4 border-gray-700 flex flex-col items-center justify-center opacity-80">
+            </button>
+            <button onClick={() => handleOrderTypeSelect('TO_GO')} className="w-[400px] h-[300px] bg-gray-800 rounded-3xl border-4 border-gray-700 flex flex-col items-center justify-center transition-all hover:bg-gray-700 hover:border-blue-500 active:scale-95">
                 <span className="text-8xl mb-4">🛍️</span>
                 <span className="text-5xl font-black">To Go</span>
-            </div>
+            </button>
          </div>
       </div>
     );
   }
 
-  // 6. 테이블 번호 입력
   if (viewMode === 'TABLE_NUMBER_SELECT') {
     return (
       <div className="h-screen bg-gray-900 flex flex-col items-center justify-center text-white">
@@ -146,7 +144,6 @@ export default function CustomerPage() {
     );
   }
 
-  // 7. 옵션 선택
   if (viewMode === 'MODIFIER_SELECT') {
     return (
       <div className="h-screen bg-gray-900 flex text-white">
@@ -192,7 +189,6 @@ export default function CustomerPage() {
     );
   }
 
-  // 8. 기본 장바구니 (CART)
   return (
     <div className="h-screen bg-black text-white flex">
       <div className="flex-1 p-8 border-r border-gray-800 overflow-y-auto">
@@ -240,15 +236,14 @@ function IdleSlideshow() {
 
   return (
     <div className="h-screen w-full bg-black flex items-center justify-center overflow-hidden relative">
-      <div className="absolute inset-0 bg-black/40 z-10" />
-      <div className="z-20 w-full h-full">
+      <div className="absolute inset-0 z-0 w-full h-full">
           {content.type === 'video' ? (
               <video src={content.src} className="w-full h-full object-cover" autoPlay muted loop />
           ) : (
-              <div className="w-full h-full bg-cover bg-center flex items-center justify-center" style={{ backgroundImage: `url(${content.src})` }}>
-              </div>
+              <div className="w-full h-full bg-cover bg-center" style={{ backgroundImage: `url(${content.src})` }} />
           )}
       </div>
+      <div className="absolute inset-0 bg-black/40 z-10 pointer-events-none" />
     </div>
   );
 }
