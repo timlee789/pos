@@ -113,9 +113,9 @@ export function usePosLogic() {
       const groupsToShow = selectedItemForMod.modifierGroups.map(name => modifiersObj[name]).filter(Boolean);
       sendState('MODIFIER_SELECT', cart, subtotal, selectedItemForMod.name, groupsToShow);
     } else if (flowState.flowStep === 'orderType') {
-      sendState('MESSAGE', cart, subtotal, 'Please select To Go or Dine In.');
+      sendState('ORDER_TYPE_SELECT', cart, subtotal);
     } else if (flowState.flowStep === 'tableNum') {
-      sendState('MESSAGE', cart, subtotal, 'The cashier will enter the table number.');
+      sendState('TABLE_NUMBER_SELECT', cart, subtotal);
     } else if (flowState.flowStep === 'tip') {
       sendState('TIPPING', cart, subtotal);
     } else if (flowState.flowStep === 'card_payment') {
@@ -178,7 +178,7 @@ export function usePosLogic() {
 
     if (finalResult.success) {
       setCardStatusMessage('Payment successful!');
-      sendState('PAYMENT_SUCCESS', [], 0, 'Thank you!');
+      sendState('PAYMENT_SUCCESS', [], 0);
       setTimeout(() => {
         setCart([]);
         dispatch({ type: 'FINALIZE_TRANSACTION' });
@@ -229,7 +229,6 @@ export function usePosLogic() {
         transactionActions.cancelPayment();
         dispatch({ type: 'RESET_FLOW' });
     },
-    // This function now just dispatches the tip amount to trigger the new flow
     handleTipSelectAndProcessCard: (amount: number) => {
       dispatch({ type: 'SELECT_TIP', payload: { amount } });
     },
