@@ -30,6 +30,11 @@ export interface MenuItem {
   // ✨ [추가] 노출 여부 설정
   is_kiosk_visible?: boolean;
   is_pos_visible?: boolean;
+
+  // ✨ [리팩토링] 하드코딩 제거를 위한 속성 추가
+  is_special_bundle?: boolean;
+  requires_flavor_and_size?: boolean;
+  day_of_week_special?: string; // 예: "Friday"
 }
 
 // ✨ [추가] Employee 타입 정의
