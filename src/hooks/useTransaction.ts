@@ -1,4 +1,4 @@
-'''import { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { CartItem, Employee } from '@/lib/types';
 
 const PRINTER_SERVER_URL = 'http://localhost:4000/print';
@@ -9,7 +9,6 @@ export function useTransaction() {
   const currentPaymentIntentIdRef = useRef<string | null>(null);
   const isCancelledRef = useRef(false);
 
-  // New function to handle Stripe Payment
   const processStripePayment = async (amount: number, source: 'pos' | 'kiosk', orderId: string) => {
     try {
       const response = await fetch('/api/stripe/process', {
@@ -39,7 +38,7 @@ export function useTransaction() {
       orderId: string | null = null,
       transactionId: string | null = null,
       status: 'open' | 'paid' | 'processing' = 'paid',
-      printScope: 'KITCHEN' | 'RECEIPT' | 'NONE' = 'NONE' 
+      printScope: 'ALL' | 'KITCHEN' | 'RECEIPT' | 'NONE' = 'NONE' 
   ) => {
       const creditCardFee = paymentMethod === 'CARD' ? subtotal * 0.03 : 0;
       const finalTotal = subtotal + creditCardFee + tip;
@@ -84,8 +83,8 @@ export function useTransaction() {
                           subtotal, tax: creditCardFee, tipAmount: tip, totalAmount: finalTotal, 
                           paymentMethod, employeeName: employee?.name || 'Unknown',
                           date: new Date().toLocaleString(),
-                          printKitchen: printScope === 'KITCHEN',
-                          printReceipt: printScope === 'RECEIPT'
+                          printKitchen: printScope === 'KITCHEN' || printScope === 'ALL',
+                          printReceipt: printScope === 'RECEIPT' || printScope === 'ALL'
                       })
                   });
               } catch (printError) { console.error("⚠️ Print Ignored:", printError); }
@@ -127,8 +126,7 @@ export function useTransaction() {
       isCardProcessing, setIsCardProcessing, 
       cardStatusMessage, setCardStatusMessage, 
       processOrder, refundOrder, cancelPayment,
-      processStripePayment, // Export the new function
+      processStripePayment,
       currentPaymentIntentIdRef, isCancelledRef
   };
 }
-''
