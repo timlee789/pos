@@ -38,43 +38,38 @@ export function useTransaction() {
       orderId: string | null = null,
       transactionId: string | null = null,
       status: 'open' | 'paid' | 'processing' = 'paid',
-      printScope: 'ALL' | 'KITCHEN' | 'RECEIPT' | 'NONE' = 'NONE' 
+      printScope: 'KITCHEN' | 'RECEIPT' | 'ALL' | 'NONE' = 'NONE' 
   ) => {
       const creditCardFee = paymentMethod === 'CARD' ? subtotal * 0.03 : 0;
       const finalTotal = subtotal + creditCardFee + tip;
       
+      let savedOrderId = orderId;
       let newOrderNumber = '';
-      let savedOrderId = orderId; 
 
       try {
-          const bodyData = {
+          const orderPayload = {
                items: cart, subtotal, tax: creditCardFee, tip, total: finalTotal,
                paymentMethod, transactionId, orderType, tableNum,
                employeeName: employee?.name || 'Unknown', status
           };
 
-          let saveRes;
-          if (orderId) {
-             saveRes = await fetch('/api/orders/update', {
-                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                 body: JSON.stringify({ orderId, ...bodyData })
-             });
-          } else {
-             saveRes = await fetch('/api/orders/create', {
-                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                 body: JSON.stringify(bodyData)
-             });
-          }
+          const apiEndpoint = orderId ? '/api/orders/update' : '/api/orders/create';
+          const body = orderId ? JSON.stringify({ orderId, ...orderPayload }) : JSON.stringify(orderPayload);
+
+          const res = await fetch(apiEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+          const result = await res.json();
+
+          if (!result.success) throw new Error(result.error || "DB operation failed");
           
-          const result = await saveRes.json();
-          if (!result.success) throw new Error(result.error || "DB Save Failed");
-          
+          savedOrderId = result.orderId || result.order?.id || orderId;
           newOrderNumber = result.orderNumber || result.order?.order_number;
-          savedOrderId = result.orderId || result.order?.id || orderId; 
 
-          if (!savedOrderId) throw new Error("Critical Error: Server did not return Order ID.");
+          if (!savedOrderId) throw new Error("Critical: Server did not return Order ID.");
 
-          if (printScope !== 'NONE') {
+          const shouldPrintKitchen = printScope === 'KITCHEN' || printScope === 'ALL';
+          const shouldPrintReceipt = printScope === 'RECEIPT' || printScope === 'ALL';
+
+          if (shouldPrintKitchen || shouldPrintReceipt) {
               try {
                   await fetch(PRINTER_SERVER_URL, { 
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -83,25 +78,24 @@ export function useTransaction() {
                           subtotal, tax: creditCardFee, tipAmount: tip, totalAmount: finalTotal, 
                           paymentMethod, employeeName: employee?.name || 'Unknown',
                           date: new Date().toLocaleString(),
-                          printKitchen: printScope === 'KITCHEN' || printScope === 'ALL',
-                          printReceipt: printScope === 'RECEIPT' || printScope === 'ALL'
+                          printKitchen: shouldPrintKitchen,
+                          printReceipt: shouldPrintReceipt
                       })
                   });
-              } catch (printError) { console.error("⚠️ Print Ignored:", printError); }
+              } catch (printError) {
+                  console.error("⚠️ Printing ignored:", printError);
+              }
           }
-          return { success: true, orderNumber: newOrderNumber, orderId: savedOrderId };
+          return { success: true, orderId: savedOrderId };
       } catch (error: any) {
           console.error("Process Order Error:", error);
-          return { success: false, error: error?.message || "Unknown Error" };
+          return { success: false, error: error.message || "Unknown Error" };
       }
   };
 
   const refundOrder = async (orderId: string, paymentIntentId: string, amount: number) => {
       try {
-          const res = await fetch('/api/stripe/refund', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ orderId, paymentIntentId, amount })
-          });
+          const res = await fetch('/api/stripe/refund', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, paymentIntentId, amount }) });
           return await res.json();
       } catch (e: any) { return { success: false, error: e.message }; }
   };
@@ -109,24 +103,13 @@ export function useTransaction() {
   const cancelPayment = async () => {
       isCancelledRef.current = true;
       setCardStatusMessage("Cancelling...");
-
-      const pid = currentPaymentIntentIdRef.current;
-      if (pid) {
+      if (currentPaymentIntentIdRef.current) {
           try {
-              await fetch('/api/stripe/cancel', {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ paymentIntentId: pid })
-              });
+              await fetch('/api/stripe/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentIntentId: currentPaymentIntentIdRef.current }) });
           } catch (e) { console.error("Cancel API failed", e); }
       }
       setIsCardProcessing(false);
   };
 
-  return { 
-      isCardProcessing, setIsCardProcessing, 
-      cardStatusMessage, setCardStatusMessage, 
-      processOrder, refundOrder, cancelPayment,
-      processStripePayment,
-      currentPaymentIntentIdRef, isCancelledRef
-  };
+  return { isCardProcessing, setIsCardProcessing, cardStatusMessage, setCardStatusMessage, processOrder, refundOrder, cancelPayment, processStripePayment };
 }
