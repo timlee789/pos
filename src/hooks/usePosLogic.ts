@@ -118,63 +118,51 @@ export function usePosLogic() {
     }
   }, [cart, getSubtotal, sendState, flowState.flowStep, isCardProcessing]);
 
-  const finalizeTransaction = async (method: 'CASH' | 'CARD', transactionId: string | null = null, existingOrderId: string | null = null) => {
-    const displayTableNum = flowState.tableNum || (flowState.orderType === 'to_go' ? 'To-Go' : 'Dine-In');
-    const result = await processOrder(cart, getSubtotal(), flowState.tipAmount, method, flowState.orderType || 'dine_in', displayTableNum, currentEmployee, existingOrderId, transactionId, 'paid', 'ALL');
-
-    if (result.success) {
-        sendState('PAYMENT_SUCCESS', [], 0);
-        setCart([]);
-        dispatch({ type: 'FINALIZE_TRANSACTION' });
-    } else {
-        setCardStatusMessage(result.error || 'Payment failed. Please check details and try again.');
-    }
-    setIsCardProcessing(false);
-  };
-
-  const handleCardPayment = async () => {
+  const processCardPayment = async (tipAmount: number) => {
     if (cart.length === 0) {
         alert('Cart is empty.');
         dispatch({ type: 'RESET_FLOW' });
         return;
     }
     setIsCardProcessing(true);
+    setCardStatusMessage('Printing to kitchen...');
+    sendState('CARD_PROCESSING', cart, getSubtotal() + tipAmount);
+
+    const displayTableNum = flowState.tableNum || (flowState.orderType === 'to_go' ? 'To-Go' : 'Dine-In');
+
+    // 1. Print to kitchen
+    const kitchenPrintResult = await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', displayTableNum, currentEmployee, null, null, 'processing', 'KITCHEN');
+
+    if (!kitchenPrintResult.success || !kitchenPrintResult.orderId) {
+        setCardStatusMessage(kitchenPrintResult.error || 'Failed to print to kitchen. Please try again.');
+        setIsCardProcessing(false);
+        return;
+    }
+
     setCardStatusMessage('Processing card payment...');
-    sendState('CARD_PROCESSING', cart, getSubtotal() + flowState.tipAmount);
     
-    await finalizeTransaction('CARD');
-  };
+    // 2. Process payment
+    const paymentResult = await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', displayTableNum, currentEmployee, kitchenPrintResult.orderId, null, 'paid', 'NONE');
 
-  useEffect(() => {
-    const executeCardPayment = async () => {
-      if (flowState.flowStep === 'card_payment') {
-        await handleCardPayment();
-      }
-    };
-    executeCardPayment();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowState.flowStep]);
-
-  const handleItemClick = (item: MenuItem) => {
-    if (item.day_of_week_special) {
-        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        if (item.day_of_week_special !== days[new Date().getDay()]) {
-            setWarningTargetDay(item.day_of_week_special);
-            setShowDayWarning(true);
-            return;
-        }
-    }
-    if (!item.modifierGroups || item.modifierGroups.length === 0) {
-      addToCart(item, []);
+    if (paymentResult.success && paymentResult.orderId) {
+        setCardStatusMessage('Payment successful! Printing receipt...');
+        
+        // 3. Print receipt
+        await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', displayTableNum, currentEmployee, paymentResult.orderId, null, 'paid', 'RECEIPT');
+        
+        sendState('PAYMENT_SUCCESS', [], 0);
+        setCart([]);
+        dispatch({ type: 'FINALIZE_TRANSACTION' });
     } else {
-      setSelectedItemForMod(item);
-      const groupsToShow = item.modifierGroups.map(name => modifiersObj[name]).filter(Boolean);
-      sendState('MODIFIER_SELECT', cart, getSubtotal(), item.name, groupsToShow);
+        setCardStatusMessage(paymentResult.error || 'Payment failed. Please check details and try again.');
+        // Don't clear cart, so user can retry
     }
+    setIsCardProcessing(false);
   };
   
   const handleTipSelectAndProcessCard = (amount: number) => {
     dispatch({ type: 'SELECT_TIP', payload: { amount } });
+    processCardPayment(amount);
   };
 
   return {
@@ -189,7 +177,23 @@ export function usePosLogic() {
     },
     isCardProcessing, cardStatusMessage,
     addToCart, removeFromCart, handleSaveNote, getSubtotal, editingNoteItem, setEditingNoteItem,
-    handleItemClick,
+    handleItemClick: (item: MenuItem) => {
+        if (item.day_of_week_special) {
+            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            if (item.day_of_week_special !== days[new Date().getDay()]) {
+                setWarningTargetDay(item.day_of_week_special);
+                setShowDayWarning(true);
+                return;
+            }
+        }
+        if (!item.modifierGroups || item.modifierGroups.length === 0) {
+          addToCart(item, []);
+        } else {
+          setSelectedItemForMod(item);
+          const groupsToShow = item.modifierGroups.map(name => modifiersObj[name]).filter(Boolean);
+          sendState('MODIFIER_SELECT', cart, getSubtotal(), item.name, groupsToShow);
+        }
+    },
     handlePaymentStart: (method: 'CASH' | 'CARD') => {
         if (cart.length === 0) return alert('Cart is empty.');
         dispatch({ type: 'START_PAYMENT', payload: { method } });
@@ -199,7 +203,9 @@ export function usePosLogic() {
     handleTipSelectAndProcessCard,
     handleCashPaymentConfirm: async (received: number, change: number) => {
         dispatch({ type: 'CONFIRM_CASH_PAYMENT', payload: { received, change } });
-        await finalizeTransaction('CASH');
+        await processOrder(cart, getSubtotal(), 0, 'CASH', flowState.orderType || 'dine_in', flowState.tableNum || 'To-Go', currentEmployee, null, null, 'paid', 'ALL');
+        setCart([]);
+        dispatch({ type: 'FINALIZE_TRANSACTION' });
     },
     handlePhoneOrderConfirm: async (name: string) => {
         await processOrder(cart, getSubtotal(), 0, 'PENDING', 'to_go', `To Go: ${name}`, currentEmployee, null, null, 'open', 'KITCHEN');
