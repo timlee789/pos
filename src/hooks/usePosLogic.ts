@@ -76,7 +76,7 @@ export function usePosLogic() {
   const [warningTargetDay, setWarningTargetDay] = useState('');
   
   const { cart, setCart, addToCart, removeFromCart, getSubtotal, editingNoteItem, setEditingNoteItem, handleSaveNote } = useCart(menuItems);
-  const { isCardProcessing, setIsCardProcessing, cardStatusMessage, setCardStatusMessage, processOrder, refundOrder, cancelPayment } = useTransaction();
+  const { isCardProcessing, setIsCardProcessing, cardStatusMessage, setCardStatusMessage, processOrder, refundOrder, cancelPayment, processStripePayment } = useTransaction();
   const { sendState } = useCustomerDisplay();
 
   useEffect(() => {
@@ -126,11 +126,12 @@ export function usePosLogic() {
     }
     setIsCardProcessing(true);
     setCardStatusMessage('Printing to kitchen...');
-    sendState('CARD_PROCESSING', cart, getSubtotal() + tipAmount);
+    const totalAmount = getSubtotal() + tipAmount;
+    sendState('CARD_PROCESSING', cart, totalAmount);
 
     const displayTableNum = flowState.tableNum || (flowState.orderType === 'to_go' ? 'To-Go' : 'Dine-In');
 
-    // 1. Print to kitchen
+    // 1. Print to kitchen and create order in DB
     const kitchenPrintResult = await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', displayTableNum, currentEmployee, null, null, 'processing', 'KITCHEN');
 
     if (!kitchenPrintResult.success || !kitchenPrintResult.orderId) {
@@ -141,20 +142,23 @@ export function usePosLogic() {
 
     setCardStatusMessage('Processing card payment...');
     
-    // 2. Process payment
-    const paymentResult = await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', displayTableNum, currentEmployee, kitchenPrintResult.orderId, null, 'paid', 'NONE');
+    // 2. Process payment via Stripe
+    const stripeResult = await processStripePayment(totalAmount, 'pos', kitchenPrintResult.orderId);
 
-    if (paymentResult.success && paymentResult.orderId) {
-        setCardStatusMessage('Payment successful! Printing receipt...');
-        
-        // 3. Print receipt
-        await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', displayTableNum, currentEmployee, paymentResult.orderId, null, 'paid', 'RECEIPT');
-        
-        sendState('PAYMENT_SUCCESS', [], 0);
-        setCart([]);
-        dispatch({ type: 'FINALIZE_TRANSACTION' });
+    if (stripeResult.success && stripeResult.paymentIntentId) {
+        // 3. Update order status to 'paid' and print receipt
+        const finalizationResult = await processOrder(cart, getSubtotal(), tipAmount, 'CARD', flowState.orderType || 'dine_in', displayTableNum, currentEmployee, kitchenPrintResult.orderId, stripeResult.paymentIntentId, 'paid', 'RECEIPT');
+
+        if(finalizationResult.success){
+            setCardStatusMessage('Payment successful! Printing receipt...');
+            sendState('PAYMENT_SUCCESS', [], 0);
+            setCart([]);
+            dispatch({ type: 'FINALIZE_TRANSACTION' });
+        } else {
+            setCardStatusMessage(finalizationResult.error || 'Failed to finalize order. Please check.');
+        }
     } else {
-        setCardStatusMessage(paymentResult.error || 'Payment failed. Please check details and try again.');
+        setCardStatusMessage(stripeResult.error || 'Payment failed. Please check details and try again.');
         // Don't clear cart, so user can retry
     }
     setIsCardProcessing(false);

@@ -9,18 +9,8 @@ interface TipModalProps {
 }
 
 export default function TipModal({ subtotal, onSelectTip, onCancel }: TipModalProps) {
-  const [customTip, setCustomTip] = useState('');
-  const [isCustomMode, setIsCustomMode] = useState(false);
 
-  // ✨ [수정] 팁 비율 변경: 10%, 15%, 20%
   const percentages = [10, 15, 20];
-
-  const handleCustomTipSubmit = () => {
-    const val = parseFloat(customTip);
-    if (!isNaN(val) && val >= 0) {
-      onSelectTip(val);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-md">
@@ -52,41 +42,14 @@ export default function TipModal({ subtotal, onSelectTip, onCancel }: TipModalPr
               })}
             </div>
 
-            {/* No Tip & Custom Tip Area */}
-            <div className="grid grid-cols-2 gap-4 mt-2">
+            {/* No Tip Button */}
+            <div className="mt-2">
               <button
                 onClick={() => onSelectTip(0)}
-                className="bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-6 rounded-3xl text-2xl transition-colors"
+                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-6 rounded-3xl text-2xl transition-colors"
               >
-                No Tip
+                No Tip ($0.00)
               </button>
-              
-              {/* Custom Tip Input or Button */}
-              {!isCustomMode ? (
-                <button
-                  onClick={() => setIsCustomMode(true)}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-6 rounded-3xl text-2xl transition-colors"
-                >
-                  Custom Amount
-                </button>
-              ) : (
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    value={customTip}
-                    onChange={(e) => setCustomTip(e.target.value)}
-                    placeholder="$0.00"
-                    className="w-full bg-gray-50 border-2 border-gray-300 rounded-3xl px-6 text-2xl font-bold focus:outline-none focus:border-blue-500"
-                    autoFocus
-                  />
-                  <button
-                    onClick={handleCustomTipSubmit}
-                    className="bg-blue-600 text-white font-bold px-6 rounded-3xl text-xl"
-                  >
-                    OK
-                  </button>
-                </div>
-              )}
             </div>
           </div>
 
