@@ -44,7 +44,7 @@ function flowReducer(state: PosFlowState, action: FlowAction): PosFlowState {
     case 'CONFIRM_TABLE_NUM':
       return { ...state, tableNum: action.payload.num, flowStep: state.paymentMethod === 'CARD' ? 'tip' : 'cash' };
     case 'SELECT_TIP':
-      return { ...state, tipAmount: action.payload.amount }; // Only store the tip
+      return { ...state, tipAmount: action.payload.amount };
     case 'START_CARD_PAYMENT':
       return { ...state, flowStep: 'card_payment' };
     case 'FINALIZE_TRANSACTION':
@@ -71,25 +71,22 @@ export function usePosLogic() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedItemForMod, setSelectedItemForMod] = useState<MenuItem | null>(null);
   
-  const { cart, setCart, addToCart, removeFromCart, getSubtotal, ...cartActions } = useCart(menuItems);
+  const { cart, setCart, addToCart, removeFromCart, getSubtotal, editingNoteItem, setEditingNoteItem, handleSaveNote } = useCart(menuItems);
   const { isCardProcessing, setIsCardProcessing, cardStatusMessage, setCardStatusMessage, processOrder, ...transactionActions } = useTransaction();
   const { sendState } = useCustomerDisplay();
 
-  // When tip is selected (from customer screen), trigger card payment process
   useEffect(() => {
     if (flowState.flowStep === 'tip' && flowState.tipAmount !== null) {
       dispatch({ type: 'START_CARD_PAYMENT' });
     }
   }, [flowState.tipAmount, flowState.flowStep]);
 
-  // Main card payment logic
   useEffect(() => {
     if (flowState.flowStep === 'card_payment') {
       processCardPayment();
     }
   }, [flowState.flowStep]);
 
-  // Listens for messages from the customer display (for tip selection)
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'TIP_SELECTED' && typeof event.data.payload.amount === 'number') {
@@ -104,7 +101,6 @@ export function usePosLogic() {
     };
   }, []);
 
-  // Sync state with customer display
   useEffect(() => {
     const subtotal = getSubtotal();
     if (selectedItemForMod) {
@@ -122,6 +118,20 @@ export function usePosLogic() {
     }
   }, [cart, getSubtotal, flowState, selectedItemForMod, modifiersObj, sendState]);
 
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      try {
+        const data = await getPosData();
+        setCategories(data.categories);
+        setMenuItems(data.items);
+        setModifiersObj(data.modifiersObj);
+        if (data.categories.length > 0) setSelectedCategory(data.categories[0].id);
+      } catch (error) { console.error("Failed to load POS data:", error); } 
+      finally { setIsLoading(false); }
+    };
+    loadData();
+  }, []);
 
   const processCardPayment = useCallback(async () => {
     const tip = flowState.tipAmount ?? 0;
@@ -131,7 +141,6 @@ export function usePosLogic() {
     setIsCardProcessing(true);
     setCardStatusMessage('1. Creating order and printing to kitchen...');
 
-    // 1. Create order in DB & Print to Kitchen
     const kitchenResult = await processOrder(cart, subtotal, tip, 'CARD', flowState.orderType || 'dine_in', flowState.tableNum || 'N/A', currentEmployee, null, null, 'processing', 'KITCHEN');
 
     if (!kitchenResult.success || !kitchenResult.orderId) {
@@ -140,18 +149,15 @@ export function usePosLogic() {
       return;
     }
 
-    // 2. Process Stripe Payment
     setCardStatusMessage('2. Processing card payment...');
     const stripeResult = await transactionActions.processStripePayment(subtotal + tip, 'pos', kitchenResult.orderId);
 
     if (!stripeResult.success || !stripeResult.paymentIntentId) {
       setCardStatusMessage(stripeResult.error || 'Card payment failed.');
-      // TODO: Here you could add a cancel/void on the kitchen order if needed
       setTimeout(() => { dispatch({ type: 'RESET_FLOW' }); setIsCardProcessing(false); }, 3000);
       return;
     }
 
-    // 3. Finalize order in DB (mark as paid) & Print Receipt
     setCardStatusMessage('3. Finalizing and printing receipt...');
     const finalResult = await processOrder(cart, subtotal, tip, 'CARD', flowState.orderType || 'dine_in', flowState.tableNum || 'N/A', currentEmployee, kitchenResult.orderId, stripeResult.paymentIntentId, 'paid', 'RECEIPT');
 
@@ -167,21 +173,31 @@ export function usePosLogic() {
 
   }, [cart, getSubtotal, flowState, currentEmployee, processOrder, transactionActions, sendState, setCart]);
 
-  // ... other useEffects for loading data ...
-    useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        const data = await getPosData();
-        setCategories(data.categories);
-        setMenuItems(data.items);
-        setModifiersObj(data.modifiersObj);
-        if (data.categories.length > 0) setSelectedCategory(data.categories[0].id);
-      } catch (error) { console.error("Failed to load POS data:", error); } 
-      finally { setIsLoading(false); }
-    };
-    loadData();
-  }, []);
+  const handlePhoneOrderConfirm = async (customerName: string) => {
+    const result = await processOrder(cart, getSubtotal(), 0, 'PENDING', 'to_go', `To Go: ${customerName}`, currentEmployee, null, null, 'open', 'KITCHEN');
+    if (result.success) {
+      setCart([]);
+      dispatch({ type: 'FINALIZE_TRANSACTION' });
+    }
+  };
+
+  const handleRecallOrder = (order: any) => {
+      console.log("Recalling order:", order);
+      dispatch({ type: 'RESET_FLOW' });
+  };
+
+  const handleRefundOrder = async (order: any) => {
+      if (!order.transaction_id) return alert("This order cannot be refunded automatically.");
+      const res = await transactionActions.refundOrder(order.id, order.transaction_id, order.total_amount);
+      if (res.success) alert("Refund successful.");
+      else alert(`Refund failed: ${res.error}`);
+  };
+
+  const handleLogout = () => {
+    setCurrentEmployee(null);
+    setCart([]);
+    dispatch({ type: 'FINALIZE_TRANSACTION' });
+  };
 
   return {
     currentEmployee, setCurrentEmployee, cart, categories, menuItems, modifiersObj,
@@ -190,7 +206,7 @@ export function usePosLogic() {
     selectedItemForMod, setSelectedItemForMod, 
     closeModifierModal: () => setSelectedItemForMod(null),
     isCardProcessing, cardStatusMessage,
-    addToCart, removeFromCart, ...cartActions,
+    addToCart, removeFromCart, getSubtotal, editingNoteItem, setEditingNoteItem, handleSaveNote,
     handleItemClick: (item: MenuItem) => {
         if (item.modifierGroups && item.modifierGroups.length > 0) {
           setSelectedItemForMod(item);
@@ -215,6 +231,9 @@ export function usePosLogic() {
         transactionActions.cancelPayment();
         dispatch({ type: 'RESET_FLOW' });
     },
-    // ... other handlers
+    handlePhoneOrderConfirm,
+    handleRecallOrder,
+    handleRefundOrder,
+    handleLogout
   };
 }
