@@ -6,6 +6,7 @@ import { useTransaction } from './useTransaction';
 import { MenuItem, Category, ModifierGroup, Employee } from '@/lib/types';
 
 const ADMIN_CONFIG = { enableToGoTableNum: true };
+const TAX_RATE = 0.07; // 7% Tax Rate
 
 interface PosFlowState {
   flowStep: 'idle' | 'orderType' | 'tableNum' | 'tip' | 'cash' | 'phoneOrder' | 'orderList' | 'card_payment';
@@ -44,7 +45,6 @@ function flowReducer(state: PosFlowState, action: FlowAction): PosFlowState {
     case 'CONFIRM_TABLE_NUM':
       return { ...state, tableNum: action.payload.num, flowStep: state.paymentMethod === 'CARD' ? 'tip' : 'cash' };
     case 'SELECT_TIP':
-      // Store the tip and wait for the useEffect to trigger the payment process
       return { ...state, tipAmount: action.payload.amount };
     case 'START_CARD_PAYMENT':
       return { ...state, flowStep: 'card_payment' };
@@ -76,22 +76,18 @@ export function usePosLogic() {
   const { isCardProcessing, setIsCardProcessing, cardStatusMessage, setCardStatusMessage, processOrder, ...transactionActions } = useTransaction();
   const { sendState } = useCustomerDisplay();
 
-  // Main payment flow trigger
   useEffect(() => {
-    // When a tip amount is selected (including 0 for 'No Tip'), move to the payment step.
     if (flowState.flowStep === 'tip' && flowState.tipAmount !== null) {
       dispatch({ type: 'START_CARD_PAYMENT' });
     }
   }, [flowState.tipAmount, flowState.flowStep]);
 
-  // Run the actual payment process when the state is 'card_payment'
   useEffect(() => {
     if (flowState.flowStep === 'card_payment') {
       processCardPayment();
     }
   }, [flowState.flowStep]);
 
-  // Listen for tip selection from the customer display
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'TIP_SELECTED' && typeof event.data.payload.amount === 'number') {
@@ -106,9 +102,10 @@ export function usePosLogic() {
     };
   }, []);
 
-  // Sync state with customer display
   useEffect(() => {
     const subtotal = getSubtotal();
+    const taxAmount = subtotal * TAX_RATE;
+
     if (selectedItemForMod) {
       const groupsToShow = selectedItemForMod.modifierGroups.map(name => modifiersObj[name]).filter(Boolean);
       sendState('MODIFIER_SELECT', cart, subtotal, selectedItemForMod.name, groupsToShow);
@@ -117,9 +114,9 @@ export function usePosLogic() {
     } else if (flowState.flowStep === 'tableNum') {
       sendState('TABLE_NUMBER_SELECT', cart, subtotal);
     } else if (flowState.flowStep === 'tip') {
-      sendState('TIPPING', cart, subtotal);
+      sendState('TIPPING', cart, subtotal + taxAmount);
     } else if (flowState.flowStep === 'card_payment') {
-      const total = subtotal + (flowState.tipAmount || 0);
+      const total = subtotal + taxAmount + (flowState.tipAmount || 0);
       sendState('PROCESSING', cart, total);
     } else if (cart.length > 0) {
       sendState('CART', cart, subtotal);
@@ -128,7 +125,6 @@ export function usePosLogic() {
     }
   }, [cart, getSubtotal, flowState, selectedItemForMod, modifiersObj, sendState]);
 
-  // Load initial POS data
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
@@ -144,15 +140,16 @@ export function usePosLogic() {
     loadData();
   }, []);
 
-  // Redesigned Card Payment Process
   const processCardPayment = useCallback(async () => {
     const tip = flowState.tipAmount ?? 0;
     const subtotal = getSubtotal();
     if (cart.length === 0) return;
 
+    const taxAmount = subtotal * TAX_RATE;
+    const finalTotal = subtotal + taxAmount + tip;
+
     setIsCardProcessing(true);
 
-    // --- STEP 1: Create Order & Print to KITCHEN ---
     setCardStatusMessage('1. Sending order to kitchen...');
     const kitchenResult = await processOrder(cart, subtotal, tip, 'CARD', flowState.orderType || 'dine_in', flowState.tableNum || 'N/A', currentEmployee, null, null, 'processing', 'KITCHEN');
 
@@ -162,9 +159,8 @@ export function usePosLogic() {
       return;
     }
 
-    // --- STEP 2: Process Stripe Payment ---
     setCardStatusMessage('2. Waiting for card payment...');
-    const stripeResult = await transactionActions.processStripePayment(subtotal + tip, 'pos', kitchenResult.orderId);
+    const stripeResult = await transactionActions.processStripePayment(finalTotal, 'pos', kitchenResult.orderId);
 
     if (!stripeResult.success || !stripeResult.paymentIntentId) {
       setCardStatusMessage(`Error: Card payment failed. ${stripeResult.error || ''}`);
@@ -172,7 +168,6 @@ export function usePosLogic() {
       return;
     }
 
-    // --- STEP 3: Finalize Order & Print RECEIPT ---
     setCardStatusMessage('3. Finalizing and printing receipt...');
     const finalResult = await processOrder(cart, subtotal, tip, 'CARD', flowState.orderType || 'dine_in', flowState.tableNum || 'N/A', currentEmployee, kitchenResult.orderId, stripeResult.paymentIntentId, 'paid', 'RECEIPT');
 
@@ -189,7 +184,6 @@ export function usePosLogic() {
     }
   }, [cart, getSubtotal, flowState, currentEmployee, processOrder, transactionActions, sendState, setCart]);
 
-  // Other handlers
   const handlePhoneOrderConfirm = async (customerName: string) => {
     const result = await processOrder(cart, getSubtotal(), 0, 'PENDING', 'to_go', `To Go: ${customerName}`, currentEmployee, null, null, 'open', 'KITCHEN');
     if (result.success) {
