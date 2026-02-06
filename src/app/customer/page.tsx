@@ -44,18 +44,22 @@ export default function CustomerPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleTipSelect = (percentage: number | 'NO') => {
-    let tipAmount = percentage === 'NO' ? 0 : total * (percentage / 100);
-    
-    const ch = new BroadcastChannel('pos-customer-display');
-    ch.postMessage({ type: 'TIP_SELECTED', payload: { amount: tipAmount } });
-    setTimeout(() => ch.close(), 100);
+  // 1. handleTipSelect 함수 수정 (문자열 'NO' 처리 제거하고 숫자만 받도록 단순화)
+const handleTipSelect = (percentage: number) => {
+  // 0이 들어오면 0원, 10이 들어오면 10% 계산
+  const tipAmount = total * (percentage / 100);
+  
+  // BroadcastChannel 전송 (POS에게 "팁이 0원이다, 결제 진행해라"라고 알림)
+  const ch = new BroadcastChannel('pos-customer-display');
+  ch.postMessage({ type: 'TIP_SELECTED', payload: { amount: tipAmount } });
+  setTimeout(() => ch.close(), 100);
 
-    localStorage.setItem('POS_TIP_SELECTED', JSON.stringify({ 
-        amount: tipAmount, 
-        timestamp: Date.now() 
-    }));
-  };
+  // 백업용 스토리지 저장
+  localStorage.setItem('POS_TIP_SELECTED', JSON.stringify({ 
+      amount: tipAmount, 
+      timestamp: Date.now() 
+  }));
+};
 
   const handleOrderTypeSelect = (orderType: 'DINE_IN' | 'TO_GO') => {
     const ch = new BroadcastChannel('pos-customer-display');
@@ -105,11 +109,21 @@ export default function CustomerPage() {
            <TipButton label="10%" sub={`$${(total * 0.10).toFixed(2)}`} onClick={() => handleTipSelect(10)} />
            <TipButton label="15%" sub={`$${(total * 0.15).toFixed(2)}`} onClick={() => handleTipSelect(15)} />
            <TipButton label="20%" sub={`$${(total * 0.20).toFixed(2)}`} onClick={() => handleTipSelect(20)} />
-           <TipButton label="No Tip" sub="Skip" onClick={() => handleTipSelect('NO')} color="gray" />
+           
+           {/* ✨ [핵심 수정] 
+               1. 'NO' 대신 숫자 0을 전달 -> 0원 팁으로 계산되어 결제 진행됨
+               2. sub 텍스트를 "Skip"에서 "$0.00" 또는 "Pay Now"로 변경하여 결제 진행임을 명시
+           */}
+           <TipButton 
+               label="No Tip" 
+               sub="$0.00" 
+               onClick={() => handleTipSelect(0)} 
+               color="gray" 
+           />
         </div>
       </div>
     );
-  }
+}
 
   if (viewMode === 'ORDER_TYPE_SELECT') {
     return (
