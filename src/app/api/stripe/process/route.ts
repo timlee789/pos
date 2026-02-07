@@ -3,27 +3,23 @@ import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-// ✨ PaymentIntent 상태를 확인하고 최종 결과를 반환하는 함수
+// ✨ PaymentIntent 상태를 확인하고 최종 결과를 반환하는 함수 (기존 로직 유지)
 async function confirmPaymentIntent(paymentIntentId: string, timeout = 25000): Promise<Stripe.PaymentIntent> {
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeout) {
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
     
-    // 💡 상태가 'succeeded' 또는 'requires_capture'이면 성공으로 간주
     if (pi.status === 'succeeded' || pi.status === 'requires_capture') {
       return pi;
     }
-    // 💡 최종 실패 상태이면 즉시 중단
     if (pi.status === 'canceled') {
       throw new Error('Payment was not successful. Status: ' + pi.status);
     }
     
-    // 1초 대기 후 다시 확인
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
-  // 타임아웃 발생 시 마지막 상태 확인 후 실패 처리
   const lastPi = await stripe.paymentIntents.retrieve(paymentIntentId);
   if(lastPi.status !== 'succeeded' && lastPi.status !== 'requires_capture') {
       try {
@@ -33,13 +29,14 @@ async function confirmPaymentIntent(paymentIntentId: string, timeout = 25000): P
       }
       throw new Error('Payment confirmation timed out.');
   }
-  return lastPi; // 타임아웃 직전에 성공한 경우
+  return lastPi;
 }
 
 
 export async function POST(request: Request) {
   try {
-    const { amount, source, orderId } = await request.json();
+    // ✨ [수정 1] description도 같이 받도록 수정 (usePosLogic에서 보낸 것)
+    const { amount, source, orderId, description } = await request.json();
 
     let readerId = '';
     if (source === 'pos') {
@@ -58,13 +55,17 @@ export async function POST(request: Request) {
       await stripe.terminal.readers.cancelAction(readerId);
     } catch (e) { /* 무시 */ }
 
-    // ✨ 캡처 방법을 manual로 변경
+    // ✨ [수정 2] PaymentIntent 생성 시 메타데이터 보강
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amount * 100),
       currency: 'usd',
       payment_method_types: ['card_present'],
-      capture_method: 'manual', // 💡 수동 캡처로 변경
-      metadata: { orderId: orderId }
+      capture_method: 'manual', 
+      description: description || `Order ${orderId}`, // Stripe 대시보드에서 주문 식별 용이하게 추가
+      metadata: { 
+          orderId: String(orderId), // 💡 Webhook에서 꺼낼 핵심 키 (문자열 변환 안전장치)
+          source: source            // POS인지 KIOSK인지 구분용
+      }
     });
 
     console.log(`⏳ [${orderId}] Created PaymentIntent: ${paymentIntent.id}. Processing on reader...`);
@@ -75,12 +76,12 @@ export async function POST(request: Request) {
     
     console.log(`[${orderId}] Reader action complete. Waiting for payment confirmation...`);
 
-    // ✨ confirmPaymentIntent 함수를 사용하여 결제 완료를 기다림
+    // 결제 완료 대기 (기존 함수 사용)
     const confirmedPi = await confirmPaymentIntent(paymentIntent.id);
 
     console.log(`[${orderId}] PaymentIntent ${confirmedPi.id} status: ${confirmedPi.status}. Capturing funds...`);
 
-    // ✨ 결제 성공이 확인되면 수동으로 캡처
+    // 수동 캡처
     const capturedPi = await stripe.paymentIntents.capture(confirmedPi.id);
     
     console.log(`✅ [${orderId}] Successfully captured payment for PaymentIntent: ${capturedPi.id}`);

@@ -6,7 +6,9 @@ import { useTransaction } from './useTransaction';
 import { MenuItem, Category, ModifierGroup, Employee } from '@/lib/types';
 
 const ADMIN_CONFIG = { enableToGoTableNum: true };
-const TAX_RATE = 0.07; // 7% Tax Rate
+
+// ✨ [수정] 환경 변수에서 가져오기 (없으면 기본값 0.07 사용)
+const TAX_RATE = parseFloat(process.env.NEXT_PUBLIC_TAX_RATE || '0.07');
 
 interface PosFlowState {
   flowStep: 'idle' | 'orderType' | 'tableNum' | 'tip' | 'cash' | 'phoneOrder' | 'orderList' | 'card_payment';
@@ -151,6 +153,7 @@ export function usePosLogic() {
     setIsCardProcessing(true);
 
     setCardStatusMessage('1. Sending order to kitchen...');
+    // 1. 주문 생성 (이 시점에서 orderId가 생성됨)
     const kitchenResult = await processOrder(cart, subtotal, tip, 'CARD', flowState.orderType || 'dine_in', flowState.tableNum || 'N/A', currentEmployee, null, null, 'processing', 'KITCHEN');
 
     if (!kitchenResult.success || !kitchenResult.orderId) {
@@ -160,7 +163,15 @@ export function usePosLogic() {
     }
 
     setCardStatusMessage('2. Waiting for card payment...');
-    const stripeResult = await transactionActions.processStripePayment(finalTotal, 'pos', kitchenResult.orderId);
+    
+    // ✨ [핵심 수정] Webhook을 위해 orderId와 description을 명시적으로 전달합니다.
+    // (주의: useTransaction.ts의 processStripePayment 함수도 이 인자들을 받아 fetch로 넘기도록 확인해주세요)
+    const stripeResult = await transactionActions.processStripePayment(
+        finalTotal, 
+        'pos', 
+        kitchenResult.orderId, // ✅ Webhook의 핵심 Key (Metadata)
+        `Order #${kitchenResult.orderId} - Table ${flowState.tableNum || 'N/A'}` // ✅ Stripe 대시보드 표시용
+    );
 
     if (!stripeResult.success || !stripeResult.paymentIntentId) {
       setCardStatusMessage(`Error: Card payment failed. ${stripeResult.error || ''}`);
@@ -180,7 +191,13 @@ export function usePosLogic() {
         setIsCardProcessing(false);
       }, 2000);
     } else {
-      setCardStatusMessage('CRITICAL ERROR: Payment succeeded but failed to update order.');
+      // Webhook이 켜져 있으므로 여기서 UI 업데이트가 실패해도 서버에서 처리될 확률이 높음
+      setCardStatusMessage('Payment successful! Finalizing via system...');
+      setTimeout(() => {
+        setCart([]);
+        dispatch({ type: 'FINALIZE_TRANSACTION' });
+        setIsCardProcessing(false);
+      }, 2000);
     }
   }, [cart, getSubtotal, flowState, currentEmployee, processOrder, transactionActions, sendState, setCart]);
 

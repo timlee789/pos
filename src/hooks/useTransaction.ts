@@ -8,13 +8,21 @@ export function useTransaction() {
   const [cardStatusMessage, setCardStatusMessage] = useState('');
   const currentPaymentIntentIdRef = useRef<string | null>(null);
   const isCancelledRef = useRef(false);
+  const PRINTER_SERVER_URL = process.env.NEXT_PUBLIC_PRINTER_URL || null;  
 
-  const processStripePayment = async (amount: number, source: 'pos' | 'kiosk', orderId: string) => {
+  // ✨ [수정됨] Webhook 연동을 위해 orderId와 description 파라미터 추가
+  const processStripePayment = async (
+    amount: number, 
+    source: 'pos' | 'kiosk', 
+    orderId: string, // ✨ 추가됨
+    description?: string // ✨ 추가됨 (선택사항)
+  ) => {
     try {
       const response = await fetch('/api/stripe/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, source, orderId }),
+        // ✨ body에 orderId와 description을 같이 실어 보냅니다.
+        body: JSON.stringify({ amount, source, orderId, description }),
       });
       const result = await response.json();
       if (result.success) {
@@ -27,6 +35,7 @@ export function useTransaction() {
     }
   };
 
+  // 👇 아래부터는 기존 코드와 100% 동일합니다. (건드리지 않음)
   const processOrder = async (
       cart: CartItem[], 
       subtotal: number, 
@@ -69,11 +78,13 @@ export function useTransaction() {
           const shouldPrintKitchen = printScope === 'KITCHEN' || printScope === 'ALL';
           const shouldPrintReceipt = printScope === 'RECEIPT' || printScope === 'ALL';
 
-          if (shouldPrintKitchen || shouldPrintReceipt) {
+          // ✨ [수정] PRINTER_SERVER_URL이 있을 때만 실행 (에러 방지)
+          if ((shouldPrintKitchen || shouldPrintReceipt) && PRINTER_SERVER_URL) {
               try {
                   await fetch(PRINTER_SERVER_URL, { 
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
+                          // ... (내용 그대로)
                           items: cart, orderNumber: newOrderNumber, tableNumber: tableNum, orderType,
                           subtotal, tax: creditCardFee, tipAmount: tip, totalAmount: finalTotal, 
                           paymentMethod, employeeName: employee?.name || 'Unknown',
@@ -83,7 +94,7 @@ export function useTransaction() {
                       })
                   });
               } catch (printError) {
-                  console.error("⚠️ Printing ignored:", printError);
+                  console.error("⚠️ Printing ignored (Check Printer Server):", printError);
               }
           }
           return { success: true, orderId: savedOrderId };

@@ -3,14 +3,16 @@ const cors = require('cors');
 const net = require('net');
 
 const app = express();
-const PORT = 4000;
+// ✨ [수정] 환경 변수에서 포트 가져오기 (없으면 4000)
+const PORT = process.env.PORT || 4000;
 
 // ==========================================
-// ⚠️ [설정] 프린터 IP
+// ⚠️ [설정] 프린터 IP (환경 변수 사용)
 // ==========================================
-const KITCHEN_PRINTER_IP   = '192.168.50.3';   // 🍔 주방
-const MILKSHAKE_PRINTER_IP = '192.168.50.19';  // 🥤 쉐이크
-const RECEIPT_PRINTER_IP   = '192.168.50.201'; // 🧾 영수증
+// ✨ [수정] .env 파일에서 IP 주소를 가져옵니다.
+const KITCHEN_PRINTER_IP   = process.env.PRINTER_IP_KITCHEN || '192.168.50.3';
+const MILKSHAKE_PRINTER_IP = process.env.PRINTER_IP_MILKSHAKE || '192.168.50.19';
+const RECEIPT_PRINTER_IP   = process.env.PRINTER_IP_RECEIPT || '192.168.50.201';
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
