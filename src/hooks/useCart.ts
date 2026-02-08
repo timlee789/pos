@@ -1,11 +1,20 @@
 import { useState } from 'react';
 import { MenuItem, CartItem, ModifierOption } from '@/lib/types';
 
+// ✨ [추가] 환경 변수에서 카드 수수료율 가져오기 (기본값 0.03 = 3%)
+const CARD_FEE_RATE = parseFloat(process.env.NEXT_PUBLIC_CARD_FEE_RATE || '0.03');
+
 export function useCart(menuItems: MenuItem[]) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [editingNoteItem, setEditingNoteItem] = useState<CartItem | null>(null);
 
   const getSubtotal = () => cart.reduce((sum, item) => sum + (item.totalPrice * item.quantity), 0);
+
+  // ✨ [추가] 카드 수수료 계산 함수
+  // (Subtotal + Tax) 금액을 넣으면 수수료 금액을 반환합니다.
+  const getCardFee = (amountWithTax: number) => {
+    return amountWithTax * CARD_FEE_RATE;
+  };
 
   // ✨ [리팩토링] modifiers 타입을 명확히 하고, 로직을 is_special_bundle 플래그 기반으로 변경
   const addToCart = (item: MenuItem, modifiers: ModifierOption[] = []) => {
@@ -85,5 +94,6 @@ export function useCart(menuItems: MenuItem[]) {
     setEditingNoteItem(null);
   };
 
-  return { cart, setCart, addToCart, removeFromCart, getSubtotal, editingNoteItem, setEditingNoteItem, handleSaveNote };
+  // ✨ getCardFee를 반환 객체에 추가했습니다.
+  return { cart, setCart, addToCart, removeFromCart, getSubtotal, getCardFee, editingNoteItem, setEditingNoteItem, handleSaveNote };
 }

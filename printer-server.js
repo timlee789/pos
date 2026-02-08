@@ -3,16 +3,20 @@ const cors = require('cors');
 const net = require('net');
 
 const app = express();
-// ✨ [수정] 환경 변수에서 포트 가져오기 (없으면 4000)
 const PORT = process.env.PORT || 4000;
 
 // ==========================================
 // ⚠️ [설정] 프린터 IP (환경 변수 사용)
 // ==========================================
-// ✨ [수정] .env 파일에서 IP 주소를 가져옵니다.
+// 주방 및 쉐이크 프린터 (공용)
 const KITCHEN_PRINTER_IP   = process.env.PRINTER_IP_KITCHEN || '192.168.50.3';
 const MILKSHAKE_PRINTER_IP = process.env.PRINTER_IP_MILKSHAKE || '192.168.50.19';
-const RECEIPT_PRINTER_IP   = process.env.PRINTER_IP_RECEIPT || '192.168.50.201';
+
+// ✨ [수정] 영수증 프린터 IP 분리 (POS용 vs Kiosk용)
+// .env 파일에 PRINTER_IP_RECEIPT_POS와 PRINTER_IP_RECEIPT_KIOSK를 정의해야 합니다.
+// 만약 정의되지 않았다면 기본값으로 기존 201(POS), 202(Kiosk)를 사용합니다.
+const RECEIPT_PRINTER_IP_POS   = process.env.PRINTER_IP_RECEIPT_POS || '192.168.50.201';
+const RECEIPT_PRINTER_IP_KIOSK = process.env.PRINTER_IP_RECEIPT_KIOSK || '192.168.50.202';
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
@@ -118,7 +122,7 @@ function generateKitchenBuffer(items, tableNumber, orderId, title, useAbbreviati
 }
 
 function generateReceiptBuffer(data) {
-    const { items, tableNumber, subtotal, tax, tipAmount, totalAmount, date, orderType, employeeName, paymentMethod } = data;
+    const { items, tableNumber, subtotal, tax, tipAmount, totalAmount, date, orderType, employeeName, paymentMethod, cardFee } = data;
     const displayOrderNum = (tableNumber && tableNumber !== 'To Go') ? tableNumber : "To Go";
     const displayType = (orderType === 'dine_in') ? "Dine In" : "To Go";
     const serverName = employeeName || "Kiosk"; 
@@ -152,6 +156,12 @@ function generateReceiptBuffer(data) {
 
     buffer += "--------------------------------\n" + ALIGN_RIGHT;
     buffer += `Subtotal: $${(subtotal || 0).toFixed(2)}\nTax: $${(tax || 0).toFixed(2)}\n`;
+    
+    // ✨ [추가] 영수증에 카드 수수료 표시 (값이 있을 경우에만)
+    if (cardFee && cardFee > 0) {
+        buffer += `Card Fee (3%): $${cardFee.toFixed(2)}\n`;
+    }
+
     if (tipAmount > 0) buffer += BOLD_ON + `Tip: $${tipAmount.toFixed(2)}\n` + BOLD_OFF;
     buffer += "--------------------------------\n";
     buffer += DOUBLE_HEIGHT + BOLD_ON + `TOTAL: $${(totalAmount || 0).toFixed(2)}\n` + NORMAL + BOLD_OFF;
@@ -163,11 +173,11 @@ function generateReceiptBuffer(data) {
 app.post('/print', async (req, res) => {
     try {
         console.log("------------------------------------------------");
-        console.log(`📩 [인쇄 요청] 주문번호: ${req.body.tableNumber || 'Unknown'}`); 
+        console.log(`📩 [인쇄 요청] 주문번호: ${req.body.tableNumber || 'Unknown'} | Source: ${req.body.source || 'POS'}`); 
         
         const { 
             items, tableNumber, totalAmount, orderType, employeeName, paymentMethod,
-            printKitchen, printReceipt
+            printKitchen, printReceipt, source // ✨ source 추가 (kiosk인지 pos인지)
         } = req.body;
 
         const milkshakeItems = [];
@@ -186,6 +196,7 @@ app.post('/print', async (req, res) => {
 
         const printPromises = [];
 
+        // 1. 주방 프린터 (공용)
         if (printKitchen) {
             if (kitchenItems.length > 0) {
                 console.log("🍔 주방 프린터로 전송 중...");
@@ -199,10 +210,20 @@ app.post('/print', async (req, res) => {
             }
         }
 
+        // 2. 영수증 프린터 (분리)
         if (printReceipt && totalAmount !== undefined) {
-            console.log("🧾 영수증 프린터로 전송 중...");
+            // ✨ Source에 따라 프린터 IP 결정
+            let targetReceiptIP = RECEIPT_PRINTER_IP_POS; // 기본값 POS
+            let label = "Receipt(POS)";
+
+            if (source === 'kiosk') {
+                targetReceiptIP = RECEIPT_PRINTER_IP_KIOSK;
+                label = "Receipt(Kiosk)";
+            }
+
+            console.log(`🧾 ${label} 프린터로 전송 중... (IP: ${targetReceiptIP})`);
             const receiptBuffer = generateReceiptBuffer(req.body);
-            printPromises.push(sendToNetworkPrinter(RECEIPT_PRINTER_IP, receiptBuffer, "Receipt"));
+            printPromises.push(sendToNetworkPrinter(targetReceiptIP, receiptBuffer, label));
         }
 
         await Promise.all(printPromises);

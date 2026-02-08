@@ -1,27 +1,27 @@
 import { useState, useRef } from 'react';
 import { CartItem, Employee } from '@/lib/types';
 
-const PRINTER_SERVER_URL = 'http://localhost:4000/print';
+// ✨ [추가] 환경 변수에서 설정값 가져오기
+const PRINTER_SERVER_URL = process.env.NEXT_PUBLIC_PRINTER_SERVER_URL || null;
+const CARD_FEE_RATE = parseFloat(process.env.NEXT_PUBLIC_CARD_FEE_RATE || '0.03'); // 기본값 3%
 
 export function useTransaction() {
   const [isCardProcessing, setIsCardProcessing] = useState(false);
   const [cardStatusMessage, setCardStatusMessage] = useState('');
   const currentPaymentIntentIdRef = useRef<string | null>(null);
   const isCancelledRef = useRef(false);
-  const PRINTER_SERVER_URL = process.env.NEXT_PUBLIC_PRINTER_URL || null;  
 
-  // ✨ [수정됨] Webhook 연동을 위해 orderId와 description 파라미터 추가
+  // ✨ Webhook 연동을 위해 orderId와 description 파라미터 추가
   const processStripePayment = async (
     amount: number, 
     source: 'pos' | 'kiosk', 
-    orderId: string, // ✨ 추가됨
-    description?: string // ✨ 추가됨 (선택사항)
+    orderId: string, 
+    description?: string 
   ) => {
     try {
       const response = await fetch('/api/stripe/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // ✨ body에 orderId와 description을 같이 실어 보냅니다.
         body: JSON.stringify({ amount, source, orderId, description }),
       });
       const result = await response.json();
@@ -35,7 +35,6 @@ export function useTransaction() {
     }
   };
 
-  // 👇 아래부터는 기존 코드와 100% 동일합니다. (건드리지 않음)
   const processOrder = async (
       cart: CartItem[], 
       subtotal: number, 
@@ -49,17 +48,34 @@ export function useTransaction() {
       status: 'open' | 'paid' | 'processing' = 'paid',
       printScope: 'KITCHEN' | 'RECEIPT' | 'ALL' | 'NONE' = 'NONE' 
   ) => {
-      const creditCardFee = paymentMethod === 'CARD' ? subtotal * 0.03 : 0;
-      const finalTotal = subtotal + creditCardFee + tip;
+      // ✨ [수정] Tax와 Card Fee 분리 계산
+      const taxAmount = subtotal * parseFloat(process.env.NEXT_PUBLIC_TAX_RATE || '0.07');
+      
+      // ✨ [추가] 카드 결제일 때만 수수료 계산 (Tax가 포함된 금액에 수수료를 매길지, Subtotal에만 매길지는 정책에 따름)
+      // 보통은 (Subtotal + Tax) 전체 금액에 대해 3%를 매깁니다.
+      const amountSubjectToFee = subtotal + taxAmount;
+      const cardFee = paymentMethod === 'CARD' ? amountSubjectToFee * CARD_FEE_RATE : 0;
+
+      // 최종 금액 = 음식값 + 세금 + 카드수수료 + 팁
+      const finalTotal = subtotal + taxAmount + cardFee + tip;
       
       let savedOrderId = orderId;
       let newOrderNumber = '';
 
       try {
           const orderPayload = {
-               items: cart, subtotal, tax: creditCardFee, tip, total: finalTotal,
-               paymentMethod, transactionId, orderType, tableNum,
-               employeeName: employee?.name || 'Unknown', status
+               items: cart, 
+               subtotal, 
+               tax: taxAmount,      // 세금 별도 저장
+               cardFee: cardFee,    // ✨ [추가] 카드 수수료 별도 저장 (DB 컬럼 card_fee 매핑 필요)
+               tip, 
+               total: finalTotal,
+               paymentMethod, 
+               transactionId, 
+               orderType, 
+               tableNum,
+               employeeName: employee?.name || 'Unknown', 
+               status
           };
 
           const apiEndpoint = orderId ? '/api/orders/update' : '/api/orders/create';
@@ -78,16 +94,23 @@ export function useTransaction() {
           const shouldPrintKitchen = printScope === 'KITCHEN' || printScope === 'ALL';
           const shouldPrintReceipt = printScope === 'RECEIPT' || printScope === 'ALL';
 
-          // ✨ [수정] PRINTER_SERVER_URL이 있을 때만 실행 (에러 방지)
+          // PRINTER_SERVER_URL이 있을 때만 실행 (에러 방지)
           if ((shouldPrintKitchen || shouldPrintReceipt) && PRINTER_SERVER_URL) {
               try {
                   await fetch(PRINTER_SERVER_URL, { 
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
-                          // ... (내용 그대로)
-                          items: cart, orderNumber: newOrderNumber, tableNumber: tableNum, orderType,
-                          subtotal, tax: creditCardFee, tipAmount: tip, totalAmount: finalTotal, 
-                          paymentMethod, employeeName: employee?.name || 'Unknown',
+                          items: cart, 
+                          orderNumber: newOrderNumber, 
+                          tableNumber: tableNum, 
+                          orderType,
+                          subtotal, 
+                          tax: taxAmount, 
+                          cardFee: cardFee, // ✨ [추가] 프린터 서버로 수수료 정보 전송
+                          tipAmount: tip, 
+                          totalAmount: finalTotal, 
+                          paymentMethod, 
+                          employeeName: employee?.name || 'Unknown',
                           date: new Date().toLocaleString(),
                           printKitchen: shouldPrintKitchen,
                           printReceipt: shouldPrintReceipt

@@ -35,7 +35,6 @@ async function confirmPaymentIntent(paymentIntentId: string, timeout = 25000): P
 
 export async function POST(request: Request) {
   try {
-    // ✨ [수정 1] description도 같이 받도록 수정 (usePosLogic에서 보낸 것)
     const { amount, source, orderId, description } = await request.json();
 
     let readerId = '';
@@ -55,16 +54,16 @@ export async function POST(request: Request) {
       await stripe.terminal.readers.cancelAction(readerId);
     } catch (e) { /* 무시 */ }
 
-    // ✨ [수정 2] PaymentIntent 생성 시 메타데이터 보강
+    // PaymentIntent 생성
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amount * 100),
       currency: 'usd',
       payment_method_types: ['card_present'],
       capture_method: 'manual', 
-      description: description || `Order ${orderId}`, // Stripe 대시보드에서 주문 식별 용이하게 추가
+      description: description || `Order ${orderId}`,
       metadata: { 
-          orderId: String(orderId), // 💡 Webhook에서 꺼낼 핵심 키 (문자열 변환 안전장치)
-          source: source            // POS인지 KIOSK인지 구분용
+          orderId: String(orderId), 
+          source: source            
       }
     });
 
@@ -76,12 +75,12 @@ export async function POST(request: Request) {
     
     console.log(`[${orderId}] Reader action complete. Waiting for payment confirmation...`);
 
-    // 결제 완료 대기 (기존 함수 사용)
+    // 결제 완료 대기
     const confirmedPi = await confirmPaymentIntent(paymentIntent.id);
 
     console.log(`[${orderId}] PaymentIntent ${confirmedPi.id} status: ${confirmedPi.status}. Capturing funds...`);
 
-    // 수동 캡처
+    // 수동 캡처 (팁이 포함된 최종 금액이 여기서 확정됨)
     const capturedPi = await stripe.paymentIntents.capture(confirmedPi.id);
     
     console.log(`✅ [${orderId}] Successfully captured payment for PaymentIntent: ${capturedPi.id}`);
@@ -89,7 +88,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ 
       success: true, 
       paymentIntentId: capturedPi.id,
-      status: capturedPi.status
+      status: capturedPi.status,
+      // ✨ [핵심 수정] 최종 결제된 금액(센트 단위)을 프론트엔드로 보냅니다.
+      // 이걸 보내야 usePosLogic.ts에서 팁을 역계산할 수 있습니다.
+      amountReceived: capturedPi.amount_received 
     });
 
   } catch (error: any) {

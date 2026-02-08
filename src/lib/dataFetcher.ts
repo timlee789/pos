@@ -6,6 +6,25 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// ✨ [추가됨] 설정값(팁 모드) 가져오기 함수
+const fetchStoreSettings = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('store_settings')
+      .select('enable_on_reader_tipping')
+      .limit(1)
+      .single();
+
+    if (error) {
+      console.warn("Settings fetch warning:", error.message);
+      return false; // 에러 나면 기본값(화면 팁 사용)으로
+    }
+    return data?.enable_on_reader_tipping || false;
+  } catch (e) {
+    return false;
+  }
+};
+
 // ✨ 공통: DB 데이터를 우리 앱의 MenuItem 타입으로 변환하는 함수
 const mapToMenuItem = (item: any, catName: string, modGroups: string[]): MenuItem => ({
   id: item.id,
@@ -68,15 +87,14 @@ const fetchMenuData = async (isKioskMode: boolean) => {
     const rawItems = cat.items || [];
     const filteredItems = rawItems.filter((item: any) => {
       if (isKioskMode) {
-        // 키오스크 모드면: is_kiosk_visible이 true인 것만 + 품절된 것도 보여줄지는 선택(일단 보여줌)
+        // 키오스크 모드면: is_kiosk_visible이 true인 것만
         return item.is_kiosk_visible !== false; 
       } else {
-        // POS 모드면: is_pos_visible이 true인 것만 (직원용 숨김 메뉴 처리 가능)
+        // POS 모드면: is_pos_visible이 true인 것만
         return item.is_pos_visible !== false;
       }
     });
 
-    // 아이템이 하나도 없는 카테고리는 건너뛸 수도 있지만, 일단 빈 카테고리도 표시
     categories.push({ 
       id: cat.id, 
       name: cat.name,
@@ -115,15 +133,25 @@ const fetchMenuData = async (isKioskMode: boolean) => {
 };
 
 // -----------------------------------------------------
-// 🚀 외부에서 사용하는 함수들 (이제 2개로 나뉩니다!)
+// 🚀 외부에서 사용하는 함수들
 // -----------------------------------------------------
 
-// 1. 손님용 (키오스크): 숨김 처리된 메뉴는 안 가져옴
+// 1. 손님용 (키오스크)
 export const getKioskData = async () => {
   return await fetchMenuData(true);
 };
 
-// 2. 직원용 (POS): 모든 메뉴를 가져옴 (설정에 따라 POS 숨김은 가능)
+// 2. 직원용 (POS): ✨ 여기를 수정했습니다!
 export const getPosData = async () => {
-  return await fetchMenuData(false);
+  // 메뉴 데이터와 설정 데이터를 병렬로 가져옵니다.
+  const [menuData, enableReaderTipping] = await Promise.all([
+    fetchMenuData(false),
+    fetchStoreSettings()
+  ]);
+
+  // 기존 메뉴 데이터에 설정값(enableReaderTipping)을 합쳐서 반환
+  return {
+    ...menuData,
+    enableReaderTipping // true면 단말기 팁 사용, false면 화면 팁 사용
+  };
 };
